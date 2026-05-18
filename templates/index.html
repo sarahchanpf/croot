@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Croot — Recruiting, with precision</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="masthead__inner">
+        <div class="brand">
+          <h1 class="brand__name">Croot</h1>
+          <p class="brand__tagline">Recruiting, with precision.</p>
+        </div>
+        <p class="masthead__lede">
+          Add a brief, type a description, fine-tune the filters — every input feeds the same search.
+        </p>
+      </div>
+    </header>
+
+    <section class="entry" aria-label="Start a search">
+      <form id="context-form" class="entry-row entry-row--brief" novalidate>
+        <span class="entry-row__label">Start from a brief</span>
+        <input
+          id="context-text"
+          type="text"
+          class="entry-row__input"
+          placeholder="Paste a JD, transcript, or notes — we’ll extract the criteria."
+          autocomplete="off"
+        />
+        <label class="entry-row__file" title="Attach .txt / .pdf / .docx">
+          <input
+            id="context-file"
+            type="file"
+            accept=".txt,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          />
+          <svg class="entry-row__file-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+          </svg>
+          <span id="context-file-name" class="entry-row__file-name"></span>
+        </label>
+        <button type="submit" id="context-submit" class="entry-row__button">Extract</button>
+      </form>
+      <p id="context-status" class="entry-row__status" role="status" aria-live="polite"></p>
+      <div id="context-summary" class="context__summary" hidden></div>
+
+      <form id="semantic-form" class="entry-row entry-row--describe" novalidate>
+        <span class="entry-row__label">Describe in words</span>
+        <input
+          id="semantic-input"
+          type="text"
+          class="entry-row__input"
+          autocomplete="off"
+          placeholder="e.g. fintech product managers in New York with 5+ years, or ex-Apple laser engineers"
+        />
+        <button type="submit" class="entry-row__button">Auto-fill</button>
+      </form>
+      <p id="semantic-status" class="entry-row__status" role="status" aria-live="polite"></p>
+
+      <header class="entry__build-head">
+        <h2 class="entry__build-title">Build your search</h2>
+        <p class="entry__build-desc">Add more detail — every field layers on top of the brief or description above.</p>
+      </header>
+
+      <div class="entry__panel">
+    <main class="layout">
+      <section class="builder" aria-labelledby="builder-title">
+        <form id="search-form" novalidate>
+          <fieldset class="section">
+            <legend class="section__label">Right now</legend>
+            <p class="builder__hint">Every field is optional — combine as many as you need.</p>
+
+            <div class="grid grid--two">
+              <label class="field">
+                <span class="field__label">Current title</span>
+                <input name="current_title" type="text" placeholder="e.g. Senior optics engineer" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span class="field__label">Location</span>
+                <input name="location" type="text" placeholder="e.g. San Francisco" autocomplete="off" />
+              </label>
+            </div>
+
+            <div class="grid grid--two">
+              <label class="field">
+                <span class="field__label">Seniority</span>
+                <select name="seniority">
+                  <option value="">Any</option>
+                  <option value="entry">Entry</option>
+                  <option value="mid">Mid</option>
+                  <option value="senior">Senior</option>
+                  <option value="lead">Lead</option>
+                  <option value="manager">Manager</option>
+                  <option value="director">Director</option>
+                  <option value="vp">VP</option>
+                  <option value="executive">Executive</option>
+                </select>
+              </label>
+              <div class="field">
+                <span class="field__label">Years of experience</span>
+                <div class="field-pair">
+                  <input name="years_experience_min" type="number" min="0" max="60" placeholder="min" />
+                  <span class="field-pair__sep">to</span>
+                  <input name="years_experience_max" type="number" min="0" max="60" placeholder="max" />
+                </div>
+              </div>
+            </div>
+
+            <label class="field">
+              <span class="field__label">School</span>
+              <input name="school" type="text" placeholder="e.g. Stanford University" autocomplete="off" />
+            </label>
+          </fieldset>
+
+          <fieldset class="section">
+            <legend class="section__label">They came from…</legend>
+            <p class="section__example">
+              Match anyone who has worked at these types of organisations at any point in their career.
+            </p>
+            <div class="tier-grid" id="tier-grid">
+              <button type="button" class="tier-pill" data-tier="big_bank" aria-pressed="false">Big Bank</button>
+              <button type="button" class="tier-pill" data-tier="big_law" aria-pressed="false">Big Law</button>
+              <button type="button" class="tier-pill" data-tier="faang" aria-pressed="false">FAANG / Big Tech</button>
+              <button type="button" class="tier-pill" data-tier="top_startup" aria-pressed="false">Top Startup</button>
+              <button type="button" class="tier-pill" data-tier="top_uni" aria-pressed="false">Top University</button>
+              <button type="button" class="tier-pill" data-tier="consulting" aria-pressed="false">Consulting</button>
+              <button type="button" class="tier-pill" data-tier="big_pharma" aria-pressed="false">Big Pharma / Healthcare</button>
+              <button type="button" class="tier-pill" data-tier="defense_gov" aria-pressed="false">Defense &amp; Government</button>
+            </div>
+            <div class="field">
+              <span class="field__label">Or type specific companies</span>
+              <div class="chip-input" data-key="from_companies">
+                <ul class="chips" data-chips></ul>
+                <input type="text" data-chip-input placeholder="e.g. Palantir, Two Sigma, Renaissance Technologies…" />
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="section">
+            <legend class="section__label">They worked at…</legend>
+            <p class="section__example">
+              e.g. First worked at Apple (2005–2010), then moved to SpaceX — great signal for a rocket engineer role at xAI.
+            </p>
+            <ol id="employers" class="employers"></ol>
+            <button type="button" class="ghost" id="add-employer">
+              <span aria-hidden="true">＋</span> Add another employer
+            </button>
+          </fieldset>
+
+          <fieldset class="section">
+            <legend class="section__label">Skills</legend>
+            <div class="grid grid--two">
+              <div class="field">
+                <span class="field__label">Must have all of these</span>
+                <div class="chip-input chip-input--must" data-key="must_have_skills">
+                  <ul class="chips" data-chips></ul>
+                  <input type="text" data-chip-input placeholder="Python, Rust, MEMS…" />
+                </div>
+                <span class="field__hint field__hint--warn">Keep this list short — every skill here reduces your candidate pool significantly.</span>
+              </div>
+              <div class="field">
+                <span class="field__label">Good to have (won't exclude candidates)</span>
+                <div class="chip-input chip-input--nice" data-key="nice_to_have_skills">
+                  <ul class="chips" data-chips></ul>
+                  <input type="text" data-chip-input placeholder="TensorRT, ONNX, GraphQL…" />
+                </div>
+                <span class="field__hint">Bonus skills — boosts match score, never excludes.</span>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="section">
+            <legend class="section__label">Project keywords</legend>
+            <div class="field">
+              <div class="chip-input" data-key="project_keywords">
+                <ul class="chips" data-chips></ul>
+                <input type="text" data-chip-input placeholder="LIDAR, AR headset, micro-mobility…" />
+              </div>
+              <span class="field__hint">Searches profile summaries.</span>
+            </div>
+          </fieldset>
+
+          <details class="advanced">
+            <summary class="advanced__summary">
+              <span class="advanced__caret" aria-hidden="true"></span>
+              <span class="advanced__title">Advanced filters</span>
+              <span class="advanced__hint">all optional</span>
+            </summary>
+            <div class="advanced__body">
+
+              <div class="advanced__group">
+                <h4 class="advanced__group-title">Seniority controls</h4>
+                <label class="toggle">
+                  <input type="checkbox" name="exclude_overly_senior" />
+                  <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
+                  <span class="toggle__label">Exclude overly senior <span class="toggle__sublabel">— skip C-suite and Chief-level titles</span></span>
+                </label>
+                <label class="toggle">
+                  <input type="checkbox" name="hands_on_leader" />
+                  <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
+                  <span class="toggle__label">Hands-on leader <span class="toggle__sublabel">— led teams and still does individual work</span></span>
+                </label>
+                <label class="field">
+                  <span class="field__label">Team size led</span>
+                  <select name="team_size_led">
+                    <option value="">Any</option>
+                    <option value="under_10">Under 10</option>
+                    <option value="10_50">10–50</option>
+                    <option value="50_200">50–200</option>
+                    <option value="200_plus">200+</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="advanced__group">
+                <h4 class="advanced__group-title">Domain expertise</h4>
+                <div class="field">
+                  <span class="field__label">Functional area</span>
+                  <div class="pill-group" data-multi-key="function_areas">
+                    <button type="button" class="filter-pill" data-value="Risk" aria-pressed="false">Risk</button>
+                    <button type="button" class="filter-pill" data-value="Cybersecurity" aria-pressed="false">Cybersecurity</button>
+                    <button type="button" class="filter-pill" data-value="AI Security" aria-pressed="false">AI Security</button>
+                    <button type="button" class="filter-pill" data-value="Compliance" aria-pressed="false">Compliance</button>
+                    <button type="button" class="filter-pill" data-value="Engineering" aria-pressed="false">Engineering</button>
+                    <button type="button" class="filter-pill" data-value="Product" aria-pressed="false">Product</button>
+                    <button type="button" class="filter-pill" data-value="Sales" aria-pressed="false">Sales</button>
+                    <button type="button" class="filter-pill" data-value="Legal" aria-pressed="false">Legal</button>
+                    <button type="button" class="filter-pill" data-value="Finance" aria-pressed="false">Finance</button>
+                    <button type="button" class="filter-pill" data-value="Operations" aria-pressed="false">Operations</button>
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field__label">
+                    Lines of defense exposure
+                    <abbr class="field__tooltip" title="Common in banking and financial services roles">?</abbr>
+                  </span>
+                  <div class="pill-group" data-multi-key="lines_of_defense">
+                    <button type="button" class="filter-pill" data-value="1st line" aria-pressed="false">1st line</button>
+                    <button type="button" class="filter-pill" data-value="2nd line" aria-pressed="false">2nd line</button>
+                    <button type="button" class="filter-pill" data-value="3rd line" aria-pressed="false">3rd line</button>
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field__label">Industry exposure</span>
+                  <div class="pill-group" data-multi-key="industries">
+                    <button type="button" class="filter-pill" data-value="Investment Banking" aria-pressed="false">Investment Banking</button>
+                    <button type="button" class="filter-pill" data-value="Hedge Fund" aria-pressed="false">Hedge Fund</button>
+                    <button type="button" class="filter-pill" data-value="Fintech" aria-pressed="false">Fintech</button>
+                    <button type="button" class="filter-pill" data-value="Cloud / Big Tech" aria-pressed="false">Cloud / Big Tech</button>
+                    <button type="button" class="filter-pill" data-value="Consulting" aria-pressed="false">Consulting</button>
+                    <button type="button" class="filter-pill" data-value="Pharma" aria-pressed="false">Pharma</button>
+                    <button type="button" class="filter-pill" data-value="Government" aria-pressed="false">Government</button>
+                    <button type="button" class="filter-pill" data-value="Other" aria-pressed="false">Other</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="advanced__group">
+                <h4 class="advanced__group-title">Communication profile</h4>
+                <div class="grid grid--two">
+                  <label class="field">
+                    <span class="field__label">Stakeholder range</span>
+                    <select name="stakeholder_range">
+                      <option value="">Any</option>
+                      <option value="technical_only">Technical only</option>
+                      <option value="both">Both technical and non-technical</option>
+                      <option value="non_technical_only">Non-technical only</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="field__label">Technical depth</span>
+                    <select name="technical_depth">
+                      <option value="">Any</option>
+                      <option value="business_facing">Business-facing</option>
+                      <option value="technical_and_business">Technical and business</option>
+                      <option value="deeply_technical">Deeply technical</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div class="advanced__group">
+                <h4 class="advanced__group-title">Career signals</h4>
+                <label class="toggle">
+                  <input type="checkbox" name="recently_changed_jobs" />
+                  <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
+                  <span class="toggle__label">Recently changed jobs <span class="toggle__sublabel">— moved in the last 90 days</span></span>
+                </label>
+                <label class="toggle">
+                  <input type="checkbox" name="weight_recent_experience" />
+                  <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
+                  <span class="toggle__label">Weight recent experience <span class="toggle__sublabel">— prioritise the last 2–3 years</span></span>
+                </label>
+                <div class="field">
+                  <span class="field__label">Career arc</span>
+                  <div class="chip-input" data-key="career_arc">
+                    <ul class="chips" data-chips></ul>
+                    <input type="text" data-chip-input placeholder="e.g. Investment Banking → Fintech → AI" />
+                  </div>
+                  <span class="field__hint">Add each step with Enter or comma.</span>
+                </div>
+              </div>
+
+              <div class="advanced__group">
+                <h4 class="advanced__group-title">Exclusions</h4>
+                <div class="grid grid--two">
+                  <div class="field">
+                    <span class="field__label">Exclude titles</span>
+                    <div class="chip-input" data-key="exclude_titles">
+                      <ul class="chips" data-chips></ul>
+                      <input type="text" data-chip-input placeholder="e.g. CSO, VP" />
+                    </div>
+                  </div>
+                  <div class="field">
+                    <span class="field__label">Exclude companies</span>
+                    <div class="chip-input" data-key="exclude_companies">
+                      <ul class="chips" data-chips></ul>
+                      <input type="text" data-chip-input placeholder="e.g. Meta, Goldman Sachs" />
+                    </div>
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field__label">Exclude seniority levels</span>
+                  <div class="pill-group" data-multi-key="exclude_seniority">
+                    <button type="button" class="filter-pill" data-value="Intern" aria-pressed="false">Intern</button>
+                    <button type="button" class="filter-pill" data-value="Entry" aria-pressed="false">Entry</button>
+                    <button type="button" class="filter-pill" data-value="Manager" aria-pressed="false">Manager</button>
+                    <button type="button" class="filter-pill" data-value="Director" aria-pressed="false">Director</button>
+                    <button type="button" class="filter-pill" data-value="Vice President" aria-pressed="false">VP</button>
+                    <button type="button" class="filter-pill" data-value="CXO" aria-pressed="false">C-Suite</button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </details>
+
+          <div class="actions">
+            <button type="submit" class="primary" id="submit">
+              <span class="primary__label">Search Crustdata</span>
+            </button>
+            <div class="actions__meta">
+              <div class="mode-toggle" role="radiogroup" aria-label="Search mode">
+                <button type="button" class="mode-toggle__option" role="radio" data-mode="exact" aria-checked="false">
+                  <span class="mode-toggle__label">Exact</span>
+                  <span class="mode-toggle__hint">strict match</span>
+                </button>
+                <button type="button" class="mode-toggle__option is-active" role="radio" data-mode="similar" aria-checked="true">
+                  <span class="mode-toggle__label">Similar</span>
+                  <span class="mode-toggle__hint">flexible</span>
+                </button>
+                <button type="button" class="mode-toggle__option" role="radio" data-mode="broad" aria-checked="false">
+                  <span class="mode-toggle__label">Broad</span>
+                  <span class="mode-toggle__hint">widens automatically</span>
+                </button>
+              </div>
+              <p id="preview-count" class="preview-count" role="status" aria-live="polite">
+                Tune the filters — count appears here before you commit.
+              </p>
+              <p id="searches-counter" class="searches-counter" role="status" aria-live="polite" hidden></p>
+              <p id="status" class="status" role="status" aria-live="polite"></p>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <aside class="rail" aria-labelledby="rail-title">
+        <h2 id="rail-title" class="rail__title">Recent searches</h2>
+        <ol id="history" class="history">
+          <li class="history__empty">Your last 25 searches will land here.</li>
+        </ol>
+      </aside>
+    </main>
+      </div><!-- /.entry__panel compose -->
+    </section><!-- /.entry -->
+
+    <section class="results" aria-labelledby="results-title">
+      <header class="results__head">
+        <div class="results__heading">
+          <h2 id="results-title" class="results__title">Candidates</h2>
+          <p id="results-meta" class="results__meta">Run a search to see candidates here.</p>
+        </div>
+        <div id="results-mode" class="results__mode" hidden></div>
+      </header>
+      <p id="results-relaxed" class="results__relaxed" hidden></p>
+      <ol id="results-list" class="results__list"></ol>
+    </section>
+
+    <template id="employer-template">
+      <li class="employer">
+        <div class="employer-sentence">
+          <span class="employer-sentence__lead" data-lead>First worked at</span>
+          <input class="employer-sentence__company" data-name="company" type="text" placeholder="Apple" autocomplete="off" />
+          <span class="employer-sentence__connector">between</span>
+          <input class="employer-sentence__year" data-name="start_year" type="number" min="1950" max="2099" placeholder="2005" />
+          <span class="employer-sentence__connector">and</span>
+          <input class="employer-sentence__year" data-name="end_year" type="number" min="1950" max="2099" placeholder="2010" />
+          <button type="button" class="employer__remove" data-remove aria-label="Remove employer">×</button>
+        </div>
+      </li>
+    </template>
+
+    <template id="chip-template">
+      <li class="chip">
+        <span data-chip-label></span>
+        <button type="button" class="chip__remove" aria-label="Remove" data-chip-remove>×</button>
+      </li>
+    </template>
+
+    <template id="result-template">
+      <li class="card" tabindex="0" role="button" aria-label="Open candidate profile">
+        <span class="card__match" data-match hidden>
+          <span class="card__match-dot" aria-hidden="true"></span>
+          <span data-match-label>Match</span>
+        </span>
+        <div class="card__body">
+          <h3 class="card__name" data-name>Name</h3>
+          <p class="card__role">
+            <span data-title>Title</span>
+            <span class="card__sep" data-sep> · </span>
+            <span data-company>Company</span>
+          </p>
+          <p class="card__meta">
+            <span data-location>Location</span>
+          </p>
+        </div>
+        <a class="card__link" data-link target="_blank" rel="noopener noreferrer">
+          LinkedIn <span aria-hidden="true">→</span>
+        </a>
+      </li>
+    </template>
+
+    <!-- Join-Croot modal (after 3 free searches) -->
+    <div id="waitlist-modal" class="modal" aria-hidden="true">
+      <div class="modal__overlay" data-modal-close></div>
+      <div class="modal__sheet" role="dialog" aria-modal="true" aria-labelledby="waitlist-title">
+        <button class="modal__close" data-modal-close aria-label="Close">×</button>
+        <div class="modal__body" data-waitlist-form>
+          <p class="modal__eyebrow">Welcome to Croot</p>
+          <h2 id="waitlist-title" class="modal__title">
+            Three searches in — keep going with us.
+          </h2>
+          <p class="modal__lede">
+            Drop your name and email to unlock unlimited searches. You’ll be part of
+            the small group shaping Croot — we’ll occasionally share what’s working
+            and ask what you wish it did. No spam, no credit card.
+          </p>
+          <form id="waitlist-form" novalidate>
+            <label class="field">
+              <span class="field__label">Name</span>
+              <input name="name" type="text" autocomplete="name" required />
+            </label>
+            <label class="field">
+              <span class="field__label">Email</span>
+              <input name="email" type="email" autocomplete="email" inputmode="email" required />
+              <span id="waitlist-email-hint" class="field__hint field__hint--soft" hidden></span>
+            </label>
+            <div class="modal__actions">
+              <button type="submit" class="primary" id="waitlist-submit">
+                <span class="primary__label">Unlock unlimited searches</span>
+              </button>
+              <p id="waitlist-status" class="status" role="status" aria-live="polite"></p>
+            </div>
+          </form>
+        </div>
+        <div class="modal__body modal__body--success" data-waitlist-success hidden>
+          <p class="modal__eyebrow">You’re in</p>
+          <h2 class="modal__title">Welcome — searches unlocked.</h2>
+          <p class="modal__lede">
+            Thanks for joining the Croot community. We’ll keep you in the loop as we
+            evolve the product. Picking up your search where you left off…
+          </p>
+          <button type="button" class="ghost" data-modal-close>Got it</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Profile slide-out panel -->
+    <aside id="profile-panel" class="panel" aria-hidden="true" aria-labelledby="panel-name">
+      <div class="panel__overlay" data-panel-close></div>
+      <section class="panel__sheet" role="dialog" aria-modal="true">
+        <header class="panel__head">
+          <button class="panel__close" data-panel-close aria-label="Close panel">×</button>
+          <a class="panel__linkedin" data-panel-linkedin target="_blank" rel="noopener noreferrer" hidden>
+            View on LinkedIn <span aria-hidden="true">↗</span>
+          </a>
+        </header>
+        <div class="panel__body" data-panel-body>
+          <p class="panel__placeholder">Click a candidate to load their full profile.</p>
+        </div>
+      </section>
+    </aside>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
