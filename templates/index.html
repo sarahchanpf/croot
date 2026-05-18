@@ -64,6 +64,15 @@
       </form>
       <p id="semantic-status" class="entry-row__status" role="status" aria-live="polite"></p>
 
+      <details id="saved-searches-panel" class="saved-searches">
+        <summary class="saved-searches__summary">
+          <span class="saved-searches__caret" aria-hidden="true"></span>
+          <span class="saved-searches__title">Saved searches</span>
+          <span class="saved-searches__hint" data-saved-count></span>
+        </summary>
+        <ol class="saved-searches__list" id="saved-searches-list" aria-live="polite"></ol>
+      </details>
+
       <header class="entry__build-head">
         <h2 class="entry__build-title">Build your search</h2>
         <p class="entry__build-desc">Add more detail — every field layers on top of the brief or description above.</p>
@@ -81,11 +90,33 @@
               <label class="field">
                 <span class="field__label">Current title</span>
                 <input name="current_title" type="text" placeholder="e.g. Senior optics engineer" autocomplete="off" />
+                <p class="title-variants" data-title-variants hidden></p>
               </label>
               <label class="field">
                 <span class="field__label">Location</span>
                 <input name="location" type="text" placeholder="e.g. San Francisco" autocomplete="off" />
               </label>
+            </div>
+
+            <div class="grid grid--two">
+              <label class="field">
+                <span class="field__label">Search radius</span>
+                <select name="location_radius_miles">
+                  <option value="">Any distance</option>
+                  <option value="10">10 mi</option>
+                  <option value="25">25 mi</option>
+                  <option value="50" selected>50 mi</option>
+                  <option value="100">100 mi</option>
+                </select>
+              </label>
+              <div class="field">
+                <span class="field__label">Work preference</span>
+                <div class="pill-group pill-group--compact" data-multi-key="work_preference">
+                  <button type="button" class="filter-pill" data-value="onsite" aria-pressed="false">On-site</button>
+                  <button type="button" class="filter-pill" data-value="hybrid" aria-pressed="false">Hybrid</button>
+                  <button type="button" class="filter-pill" data-value="remote" aria-pressed="false">Remote</button>
+                </div>
+              </div>
             </div>
 
             <div class="grid grid--two">
@@ -141,6 +172,17 @@
                 <input type="text" data-chip-input placeholder="e.g. Palantir, Two Sigma, Renaissance Technologies…" />
               </div>
             </div>
+            <label class="field">
+              <span class="field__label">Company size (applies to whole section)</span>
+              <select name="came_from_size">
+                <option value="">Any size</option>
+                <option value="1-50">1–50</option>
+                <option value="51-200">51–200</option>
+                <option value="201-1000">201–1,000</option>
+                <option value="1001-5000">1,001–5,000</option>
+                <option value="5000+">5,000+</option>
+              </select>
+            </label>
           </fieldset>
 
           <fieldset class="section">
@@ -174,6 +216,14 @@
                 <span class="field__hint">Bonus skills — boosts match score, never excludes.</span>
               </div>
             </div>
+            <div class="field">
+              <span class="field__label">Must NOT have</span>
+              <div class="chip-input chip-input--exclude" data-key="exclude_skills">
+                <ul class="chips" data-chips></ul>
+                <input type="text" data-chip-input placeholder="e.g. Cobol, jQuery — drops any profile that lists these" />
+              </div>
+              <span class="field__hint">Profiles listing any of these are removed from results.</span>
+            </div>
           </fieldset>
 
           <fieldset class="section">
@@ -185,6 +235,20 @@
               </div>
               <span class="field__hint">Searches profile summaries.</span>
             </div>
+          </fieldset>
+
+          <fieldset class="section">
+            <legend class="section__label">Candidate signals</legend>
+            <label class="toggle">
+              <input type="checkbox" name="signal_recently_changed" />
+              <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
+              <span class="toggle__label">Recently changed jobs <span class="toggle__sublabel">— Crustdata signals this person changed roles in the last ~90 days</span></span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" name="signal_likely_mobile" />
+              <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
+              <span class="toggle__label">Likely open to move (&lt; 18 months in role) <span class="toggle__sublabel">— filters for people who've been in their current role less than 18 months</span></span>
+            </label>
           </fieldset>
 
           <details class="advanced">
@@ -289,11 +353,6 @@
               <div class="advanced__group">
                 <h4 class="advanced__group-title">Career signals</h4>
                 <label class="toggle">
-                  <input type="checkbox" name="recently_changed_jobs" />
-                  <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
-                  <span class="toggle__label">Recently changed jobs <span class="toggle__sublabel">— moved in the last 90 days</span></span>
-                </label>
-                <label class="toggle">
                   <input type="checkbox" name="weight_recent_experience" />
                   <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
                   <span class="toggle__label">Weight recent experience <span class="toggle__sublabel">— prioritise the last 2–3 years</span></span>
@@ -361,11 +420,20 @@
                   <span class="mode-toggle__hint">widens automatically</span>
                 </button>
               </div>
-              <p id="preview-count" class="preview-count" role="status" aria-live="polite">
+              <p id="preview-count" class="preview-count" role="status" aria-live="polite"
+                 title="Tip: too few? loosen a filter. Too many? add one.">
                 Tune the filters — count appears here before you commit.
               </p>
               <p id="searches-counter" class="searches-counter" role="status" aria-live="polite" hidden></p>
               <p id="status" class="status" role="status" aria-live="polite"></p>
+              <div class="save-search" data-save-search hidden>
+                <button type="button" class="save-search__link" data-save-search-open>Save this search</button>
+                <form class="save-search__form" data-save-search-form hidden>
+                  <input type="text" data-save-search-name placeholder="Name this search" maxlength="200" />
+                  <button type="submit" class="ghost save-search__submit">Save</button>
+                  <button type="button" class="save-search__cancel" data-save-search-cancel aria-label="Cancel">×</button>
+                </form>
+              </div>
             </div>
           </div>
         </form>
@@ -387,10 +455,22 @@
           <h2 id="results-title" class="results__title">Candidates</h2>
           <p id="results-meta" class="results__meta">Run a search to see candidates here.</p>
         </div>
-        <div id="results-mode" class="results__mode" hidden></div>
+        <div class="results__head-right">
+          <label class="results__select-all" hidden data-results-select-all>
+            <input type="checkbox" id="results-select-all" />
+            <span>Select all</span>
+          </label>
+          <div id="results-mode" class="results__mode" hidden></div>
+        </div>
       </header>
       <p id="results-relaxed" class="results__relaxed" hidden></p>
       <ol id="results-list" class="results__list"></ol>
+      <div id="export-bar" class="export-bar" hidden>
+        <span class="export-bar__count" data-export-count>0 selected</span>
+        <button type="button" class="primary export-bar__button" id="export-csv">
+          <span class="primary__label">Export CSV</span>
+        </button>
+      </div>
     </section>
 
     <template id="employer-template">
@@ -404,6 +484,21 @@
           <input class="employer-sentence__year" data-name="end_year" type="number" min="1950" max="2099" placeholder="2010" />
           <button type="button" class="employer__remove" data-remove aria-label="Remove employer">×</button>
         </div>
+        <div class="employer-row__meta">
+          <div class="tenure-toggle" data-tenure-toggle role="radiogroup" aria-label="Tenure">
+            <button type="button" class="tenure-toggle__option" data-tenure-value="current" aria-pressed="false">Currently here</button>
+            <button type="button" class="tenure-toggle__option is-selected" data-tenure-value="either" aria-pressed="true">Either</button>
+            <button type="button" class="tenure-toggle__option" data-tenure-value="past" aria-pressed="false">Previously here</button>
+          </div>
+          <select class="employer-row__size" data-name="company_size" aria-label="Company size">
+            <option value="">Any size</option>
+            <option value="1-50">1–50</option>
+            <option value="51-200">51–200</option>
+            <option value="201-1000">201–1,000</option>
+            <option value="1001-5000">1,001–5,000</option>
+            <option value="5000+">5,000+</option>
+          </select>
+        </div>
       </li>
     </template>
 
@@ -416,6 +511,9 @@
 
     <template id="result-template">
       <li class="card" tabindex="0" role="button" aria-label="Open candidate profile">
+        <label class="card__select" title="Select for export">
+          <input type="checkbox" data-card-select />
+        </label>
         <span class="card__match" data-match hidden>
           <span class="card__match-dot" aria-hidden="true"></span>
           <span data-match-label>Match</span>
@@ -431,9 +529,17 @@
             <span data-location>Location</span>
           </p>
         </div>
-        <a class="card__link" data-link target="_blank" rel="noopener noreferrer">
-          LinkedIn <span aria-hidden="true">→</span>
-        </a>
+        <div class="card__actions">
+          <button type="button" class="card__action" data-copy-linkedin title="Copy LinkedIn URL" aria-label="Copy LinkedIn URL">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+          </button>
+          <a class="card__link" data-link target="_blank" rel="noopener noreferrer">
+            LinkedIn <span aria-hidden="true">→</span>
+          </a>
+        </div>
       </li>
     </template>
 

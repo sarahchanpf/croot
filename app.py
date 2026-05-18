@@ -96,6 +96,18 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS saved_searches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                criteria TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'similar',
+                created_at INTEGER NOT NULL,
+                last_run_at INTEGER
+            )
+            """
+        )
 
 
 def resolve_company_id(name: str):
@@ -200,10 +212,14 @@ class FIELD:
     CURRENT_FUNCTION = "current_employers.function_category"
     CURRENT_INDUSTRIES = "current_employers.company_industries"
     CURRENT_COMPANY_ID = "current_employers.company_id"
+    CURRENT_NAME = "current_employers.name"
     # Career history (current + past, merged)
     ALL_EMPLOYERS_ID = "all_employers.company_id"
     ALL_EMPLOYERS_NAME = "all_employers.name"
     ALL_EMPLOYERS_SENIORITY = "all_employers.seniority_level"
+    ALL_EMPLOYERS_HEADCOUNT_RANGE = "all_employers.company_headcount_range"
+    CURRENT_HEADCOUNT_RANGE = "current_employers.company_headcount_range"
+    PAST_HEADCOUNT_RANGE = "past_employers.company_headcount_range"
     # Past roles (used for date-bounded tenure overlap)
     PAST_COMPANY_ID = "past_employers.company_id"
     PAST_NAME = "past_employers.name"
@@ -1450,7 +1466,25 @@ def _filter_identity(c: dict, text_op, radius_miles: int) -> list:
 
     location = (c.get("location") or "").strip()
     if location:
-        out.append(geo(FIELD.REGION, location, miles=radius_miles))
+        # Broad mode auto-widens to GEO_RADIUS_BROAD_MILES — the user can
+        # widen further but never below that floor (otherwise "Broad" stops
+        # being broad). In Exact / Similar modes the user-supplied value wins
+        # outright so a tight 10-mile search behaves as asked.
+        # work_preference is collected client-side but has no Crustdata field
+        # yet — store on the criteria, but don't emit. TODO: surface in scorer
+        # when Crustdata exposes the workplace_type field.
+        raw_radius = c.get("location_radius_miles")
+        try:
+            user_radius = int(raw_radius) if raw_radius not in (None, "") else None
+        except (TypeError, ValueError):
+            user_radius = None
+        if user_radius is None:
+            effective = radius_miles
+        elif radius_miles == GEO_RADIUS_BROAD_MILES:
+            effective = max(user_radius, radius_miles)
+        else:
+            effective = user_radius
+        out.append(geo(FIELD.REGION, location, miles=effective))
 
     school = (c.get("school") or "").strip()
     if school:
@@ -1493,10 +1527,40 @@ def _filter_skills_and_keywords(c: dict, text_op) -> list:
     return out
 
 
+# Maps the recruiter-friendly size buckets shown in the UI to the
+# `company_headcount_range` strings Crustdata's persondb returns. The
+# Crustdata range labels are the same ones LinkedIn surfaces, so a single
+# UI bucket may cover more than one underlying range.
+SIZE_BUCKET_MAP: dict[str, list[str]] = {
+    "1-50":      ["1-10", "11-50"],
+    "51-200":    ["51-200"],
+    "201-1000":  ["201-500", "501-1000"],
+    "1001-5000": ["1001-5000"],
+    "5000+":     ["5001-10000", "10001+"],
+}
+
+
+def _size_buckets(label) -> list[str]:
+    """Resolve a UI size label to the underlying Crustdata range strings.
+    Returns [] for empty / "any" / unknown labels so callers can short-circuit."""
+    s = (label or "").strip().lower()
+    if not s or s == "any":
+        return []
+    return SIZE_BUCKET_MAP.get(s, [])
+
+
 def _filter_from(c: dict) -> list:
-    """'They came from…' — tier pills + freeform companies."""
+    """'They came from…' — tier pills + freeform companies, plus an optional
+    company-size constraint that applies to the candidate's full career
+    history (not just the current role)."""
+    out: list = []
     cond = build_from_conditions(c.get("from_tiers"), c.get("from_companies"))
-    return [cond] if cond else []
+    if cond:
+        out.append(cond)
+    size_buckets = _size_buckets(c.get("came_from_size"))
+    if size_buckets:
+        out.append(op_in(FIELD.ALL_EMPLOYERS_HEADCOUNT_RANGE, size_buckets))
+    return out
 
 
 def _filter_advanced(c: dict) -> list:
@@ -1504,8 +1568,10 @@ def _filter_advanced(c: dict) -> list:
     lines-of-defense, and career-arc. Each block is independent."""
     out: list = []
 
-    if c.get("recently_changed_jobs"):
+    if c.get("signal_recently_changed") or c.get("recently_changed_jobs"):
         out.append(exact(FIELD.RECENTLY_CHANGED, True))
+    # signal_likely_mobile has no direct Crustdata field — handled in
+    # _score_one_profile by checking tenure length on the current role.
 
     # Exclude overly senior — drop the CXO bucket AND any current title
     # containing "Chief".
@@ -1542,8 +1608,8 @@ def _filter_advanced(c: dict) -> list:
 
 
 def _filter_exclusions(c: dict) -> list:
-    """Exclude-title (fuzzy negation), exclude-company (id-first), and
-    exclude-seniority list."""
+    """Exclude-title (fuzzy negation), exclude-company (id-first),
+    exclude-seniority list, and exclude-skills (fuzzy negation per skill)."""
     out: list = []
     for raw in (c.get("exclude_titles") or []):
         title = (raw or "").strip()
@@ -1559,23 +1625,55 @@ def _filter_exclusions(c: dict) -> list:
     exclude_seniority = c.get("exclude_seniority") or []
     if isinstance(exclude_seniority, list) and exclude_seniority:
         out.append(op_not_in(FIELD.ALL_EMPLOYERS_SENIORITY, exclude_seniority))
+
+    for raw in (c.get("exclude_skills") or []):
+        skill = (raw or "").strip()
+        if skill:
+            out.append(op_neg(FIELD.SKILLS, skill))
     return out
 
 
 def _filter_employers(c: dict) -> list:
     """'They worked at X between Y and Z' employer stops. With dates we use a
     nested AND (tenure overlaps the range); without dates the stop matches
-    current OR past employment of that company."""
+    current OR past employment of that company.
+
+    Each employer row carries an optional `tenure`:
+      * "either" (default) — current OR past — preserves the legacy behaviour
+      * "current"          — only people currently at that company
+      * "past"             — only people who left that company
+    """
     out: list = []
     for employer in (c.get("employers") or []):
         company = (employer.get("company") or "").strip()
         start_year = (employer.get("start_year") or "").strip()
         end_year = (employer.get("end_year") or "").strip()
+        tenure = (employer.get("tenure") or "either").strip().lower()
+        if tenure not in ("current", "past", "either"):
+            tenure = "either"
+        size_buckets = _size_buckets(employer.get("company_size"))
         if not (company or start_year or end_year):
             continue
 
         company_id = resolve_company_id(company) if company else None
         has_dates = bool(start_year or end_year)
+
+        # Dates only make sense against past tenure (Crustdata exposes
+        # start/end on past_employers). If the user asked for "current" with
+        # dates, drop the dates and fall through to the no-date branch — they
+        # want anyone currently at the company, the years are informational.
+        if has_dates and tenure == "current":
+            has_dates = False
+
+        # Size constraint binds to the same scope as the row's tenure so it
+        # narrows the same employer record rather than matching any employer
+        # of that size in the candidate's history.
+        if tenure == "current":
+            size_field = FIELD.CURRENT_HEADCOUNT_RANGE
+        elif tenure == "past":
+            size_field = FIELD.PAST_HEADCOUNT_RANGE
+        else:
+            size_field = FIELD.ALL_EMPLOYERS_HEADCOUNT_RANGE
 
         if has_dates:
             # Overlap semantics: tenure overlaps [start, end] iff
@@ -1591,16 +1689,49 @@ def _filter_employers(c: dict) -> list:
                 employer_conds.append(lte(FIELD.PAST_START_DATE, year_to_end(end_year)))
             if start_year:
                 employer_conds.append(gte(FIELD.PAST_END_DATE, year_to_start(start_year)))
+            if size_buckets:
+                employer_conds.append(op_in(FIELD.PAST_HEADCOUNT_RANGE, size_buckets))
             out.append(op_and(employer_conds))
         elif company_id:
-            # Company-only stop — match current OR past (Phase 2 Step 3
-            # cluster anchor).
-            out.append(op_or([
-                exact(FIELD.CURRENT_COMPANY_ID, company_id),
-                exact(FIELD.PAST_COMPANY_ID, company_id),
-            ]))
+            if tenure == "current":
+                base = exact(FIELD.CURRENT_COMPANY_ID, company_id)
+                if size_buckets:
+                    out.append(op_and([base, op_in(size_field, size_buckets)]))
+                else:
+                    out.append(base)
+            elif tenure == "past":
+                base = exact(FIELD.PAST_COMPANY_ID, company_id)
+                if size_buckets:
+                    out.append(op_and([base, op_in(size_field, size_buckets)]))
+                else:
+                    out.append(base)
+            else:
+                # "either" — match current OR past (Phase 2 Step 3 cluster anchor).
+                # With a size constraint we bind the company_id and the size to
+                # the same employer record via the merged all_employers fields,
+                # otherwise a candidate with company X in the past AND any
+                # unrelated current employer of the requested size would match.
+                if size_buckets:
+                    out.append(op_and([
+                        exact(FIELD.ALL_EMPLOYERS_ID, company_id),
+                        op_in(FIELD.ALL_EMPLOYERS_HEADCOUNT_RANGE, size_buckets),
+                    ]))
+                else:
+                    out.append(op_or([
+                        exact(FIELD.CURRENT_COMPANY_ID, company_id),
+                        exact(FIELD.PAST_COMPANY_ID, company_id),
+                    ]))
         elif company:
-            out.append(fuzzy(FIELD.ALL_EMPLOYERS_NAME, company))
+            if tenure == "current":
+                base = fuzzy(FIELD.CURRENT_NAME, company)
+            elif tenure == "past":
+                base = fuzzy(FIELD.PAST_NAME, company)
+            else:
+                base = fuzzy(FIELD.ALL_EMPLOYERS_NAME, company)
+            if size_buckets:
+                out.append(op_and([base, op_in(size_field, size_buckets)]))
+            else:
+                out.append(base)
     return out
 
 
@@ -1969,6 +2100,34 @@ def _score_one_profile(profile: dict, criteria: dict) -> dict:
         else:
             missed_labels.append(f"from:{company}")
 
+    # Likely-mobile signal — recruiter wants people short in their current
+    # role (under 18 months). Crustdata doesn't expose this as a filterable
+    # field, so we score against the current employer's start_date when it's
+    # available. Profiles missing a start_date skip this slot entirely (no
+    # penalty), keeping the score comparable against existing matches.
+    if criteria.get("signal_likely_mobile"):
+        current_arr = profile.get("current_employers") or []
+        start = ""
+        if current_arr:
+            first = current_arr[0] or {}
+            start = first.get("start_date") or ""
+        months_in_role = None
+        if isinstance(start, str) and len(start) >= 7:
+            try:
+                sy = int(start[0:4])
+                sm = int(start[5:7])
+                now = datetime.utcnow()
+                months_in_role = (now.year - sy) * 12 + (now.month - sm)
+            except (ValueError, TypeError):
+                months_in_role = None
+        if months_in_role is not None:
+            total_slots += 1
+            if 0 <= months_in_role < 18:
+                matched_slots += 1
+                matched_labels.append("likely-mobile")
+            else:
+                missed_labels.append("likely-mobile")
+
     # Employers — each requested employer is its own slot
     for emp in (criteria.get("employers") or []):
         company = (emp.get("company") or "").strip()
@@ -2019,6 +2178,7 @@ def count_active_criteria(criteria: dict) -> int:
         "from_tiers", "from_companies",
         "function_areas", "lines_of_defense", "industries",
         "exclude_titles", "exclude_companies", "exclude_seniority",
+        "exclude_skills",
         "career_arc",
     ):
         v = c.get(arr_field) or []
@@ -2195,6 +2355,56 @@ def parse():
     return jsonify({"criteria": criteria})
 
 
+@app.route("/api/title-variants")
+def title_variants():
+    """Surface which other titles the search will match — pure local lookup
+    against TITLE_VARIANTS so the recruiter understands what "Similar" / "Broad"
+    actually does to their typed title. No Crustdata call."""
+    raw = (request.args.get("title") or "").strip()
+    mode = _normalize_mode(request.args.get("mode"))
+    if not raw:
+        return jsonify({"canonical": "", "variants": [], "mode": mode})
+
+    lower = raw.lower()
+    canonical = None
+    # TITLE_VARIANTS is longest-first, so the first hit wins — matches
+    # parse_query's selection rule.
+    for variant, canon in TITLE_VARIANTS:
+        v = variant.lower()
+        if v == lower or v in lower or lower in v:
+            canonical = canon
+            break
+    if not canonical:
+        # Unknown title: echo it back as canonical with no variants. The
+        # frontend hides the disclosure line in that case.
+        return jsonify({"canonical": raw, "variants": [], "mode": mode})
+
+    if mode == "exact":
+        variants: list = []
+    elif mode == "similar":
+        seen = {canonical.lower()}
+        variants = []
+        for v, c in TITLE_VARIANTS:
+            if c != canonical:
+                continue
+            if v.lower() in seen:
+                continue
+            seen.add(v.lower())
+            variants.append(v)
+    else:  # broad — share the head noun
+        head = canonical.split()[-1].lower() if canonical else ""
+        seen = {canonical.lower()}
+        variants = []
+        for _, c in TITLE_VARIANTS:
+            if not c or c.lower() in seen:
+                continue
+            if c.split()[-1].lower() == head:
+                seen.add(c.lower())
+                variants.append(c)
+
+    return jsonify({"canonical": canonical, "variants": variants, "mode": mode})
+
+
 # ---------- Document upload → criteria extraction ----------
 
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024  # ~4 MB — safely under Vercel's 4.5 MB cap
@@ -2356,6 +2566,62 @@ def history():
         }
         for row in rows
     ])
+
+
+# ---------- Saved searches ----------
+
+@app.route("/api/saved-searches", methods=["GET", "POST"])
+def saved_searches():
+    if request.method == "POST":
+        body = request.get_json(force=True, silent=True) or {}
+        name = (body.get("name") or "").strip()
+        criteria = body.get("criteria")
+        mode = _normalize_mode(body.get("mode"))
+        if not name or len(name) > 200:
+            return jsonify({"error": "Name is required (max 200 chars)."}), 400
+        if not isinstance(criteria, dict):
+            return jsonify({"error": "criteria must be an object."}), 400
+        now = int(time.time())
+        with closing(db()) as conn, conn:
+            cur = conn.execute(
+                "INSERT INTO saved_searches (name, criteria, mode, created_at) VALUES (?, ?, ?, ?)",
+                (name, json.dumps(criteria), mode, now),
+            )
+            inserted_id = cur.lastrowid
+        return jsonify({"id": inserted_id, "name": name})
+
+    with closing(db()) as conn:
+        rows = conn.execute(
+            "SELECT id, name, criteria, mode, created_at, last_run_at "
+            "FROM saved_searches ORDER BY created_at DESC"
+        ).fetchall()
+    out = []
+    for row in rows:
+        try:
+            criteria_obj = json.loads(row["criteria"])
+        except (TypeError, ValueError):
+            criteria_obj = {}
+        out.append({
+            "id": row["id"],
+            "name": row["name"],
+            "criteria": criteria_obj,
+            "mode": row["mode"] or DEFAULT_MODE,
+            "created_at": datetime.utcfromtimestamp(row["created_at"]).isoformat() + "Z",
+            "last_run_at": (
+                datetime.utcfromtimestamp(row["last_run_at"]).isoformat() + "Z"
+                if row["last_run_at"] else None
+            ),
+        })
+    return jsonify(out)
+
+
+@app.route("/api/saved-searches/<int:search_id>", methods=["DELETE"])
+def delete_saved_search(search_id: int):
+    with closing(db()) as conn, conn:
+        cur = conn.execute("DELETE FROM saved_searches WHERE id = ?", (search_id,))
+        if cur.rowcount == 0:
+            return jsonify({"error": "Not found."}), 404
+    return jsonify({"deleted": True})
 
 
 # ---------- Waitlist ----------

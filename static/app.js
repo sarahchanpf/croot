@@ -11,10 +11,12 @@
     lines_of_defense: [],
     industries: [],
     exclude_seniority: [],
+    work_preference: [],
     // Advanced filters — chip inputs
     career_arc: [],
     exclude_titles: [],
     exclude_companies: [],
+    exclude_skills: [],
   };
 
   // ---------- Access flow ----------
@@ -88,6 +90,7 @@
     state.employers.forEach((employer, i) => {
       const node = employerTemplate.content.firstElementChild.cloneNode(true);
       node.dataset.id = employer.id;
+      node.dataset.tenure = employer.tenure || "either";
       const leadEl = node.querySelector("[data-lead]");
       if (leadEl) leadEl.textContent = i === 0 ? "First worked at" : "Then at";
 
@@ -103,9 +106,41 @@
       startInput.addEventListener("input", (e) => (employer.start_year = e.target.value));
       endInput.addEventListener("input", (e) => (employer.end_year = e.target.value));
 
+      // Tenure segmented control — visually mirror state and update on click.
+      const tenureBtns = node.querySelectorAll("[data-tenure-value]");
+      const syncTenureUI = () => {
+        const active = employer.tenure || "either";
+        tenureBtns.forEach((b) => {
+          const on = b.dataset.tenureValue === active;
+          b.classList.toggle("is-selected", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        node.dataset.tenure = active;
+      };
+      syncTenureUI();
+      tenureBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const next = btn.dataset.tenureValue;
+          if (!next || next === employer.tenure) return;
+          employer.tenure = next;
+          syncTenureUI();
+          if (typeof schedulePreview === "function") schedulePreview();
+        });
+      });
+
+      // Per-row company-size dropdown.
+      const sizeSelect = node.querySelector('[data-name="company_size"]');
+      if (sizeSelect) {
+        sizeSelect.value = employer.company_size || "";
+        sizeSelect.addEventListener("change", (e) => {
+          employer.company_size = e.target.value;
+        });
+      }
+
       node.querySelector("[data-remove]").addEventListener("click", () => {
         state.employers = state.employers.filter((e) => e.id !== employer.id);
         renderEmployers();
+        if (typeof schedulePreview === "function") schedulePreview();
       });
 
       employersList.appendChild(node);
@@ -118,6 +153,8 @@
       company: "",
       start_year: "",
       end_year: "",
+      tenure: "either",
+      company_size: "",
     });
     renderEmployers();
   }
@@ -184,6 +221,7 @@
         node.querySelector("[data-chip-remove]").addEventListener("click", () => {
           state[key].splice(idx, 1);
           render();
+          if (typeof schedulePreview === "function") schedulePreview();
         });
         list.appendChild(node);
       });
@@ -198,6 +236,7 @@
       }
       input.value = "";
       render();
+      if (typeof schedulePreview === "function") schedulePreview();
     }
 
     input.addEventListener("keydown", (e) => {
@@ -228,6 +267,8 @@
     return {
       current_title: fd.get("current_title") || "",
       location: fd.get("location") || "",
+      location_radius_miles: fd.get("location_radius_miles") || "",
+      work_preference: state.work_preference.slice(),
       seniority: fd.get("seniority") || "",
       years_experience_min: fd.get("years_experience_min") || "",
       years_experience_max: fd.get("years_experience_max") || "",
@@ -237,12 +278,15 @@
       project_keywords: state.project_keywords.slice(),
       from_tiers: state.from_tiers.slice(),
       from_companies: state.from_companies.slice(),
+      came_from_size: fd.get("came_from_size") || "",
       mode: currentMode,
       employers: state.employers
         .map((e) => ({
           company: e.company.trim(),
           start_year: e.start_year.toString().trim(),
           end_year: e.end_year.toString().trim(),
+          tenure: e.tenure || "either",
+          company_size: e.company_size || "",
         }))
         .filter((e) => e.company || e.start_year || e.end_year),
       // Advanced filters
@@ -254,11 +298,13 @@
       industries: state.industries.slice(),
       stakeholder_range: fd.get("stakeholder_range") || "",
       technical_depth: fd.get("technical_depth") || "",
-      recently_changed_jobs: checked("recently_changed_jobs"),
+      signal_recently_changed: checked("signal_recently_changed"),
+      signal_likely_mobile: checked("signal_likely_mobile"),
       weight_recent_experience: checked("weight_recent_experience"),
       career_arc: state.career_arc.slice(),
       exclude_titles: state.exclude_titles.slice(),
       exclude_companies: state.exclude_companies.slice(),
+      exclude_skills: state.exclude_skills.slice(),
       exclude_seniority: state.exclude_seniority.slice(),
     };
   }
@@ -273,10 +319,13 @@
       arr(c.from_tiers) || arr(c.from_companies) ||
       c.exclude_overly_senior || c.hands_on_leader ||
       c.team_size_led || c.stakeholder_range || c.technical_depth ||
-      c.recently_changed_jobs || c.weight_recent_experience ||
+      c.signal_recently_changed || c.signal_likely_mobile ||
+      c.weight_recent_experience ||
       arr(c.function_areas) || arr(c.lines_of_defense) || arr(c.industries) ||
+      arr(c.work_preference) ||
       arr(c.career_arc) || arr(c.exclude_titles) ||
-      arr(c.exclude_companies) || arr(c.exclude_seniority)
+      arr(c.exclude_companies) || arr(c.exclude_skills) ||
+      arr(c.exclude_seniority)
     );
   }
 
@@ -341,6 +390,7 @@
       }
       refreshAccessUI();
       loadHistory();
+      revealSaveSearch();
     } catch (err) {
       setStatus(`Network error: ${err.message || err}`, "error");
     } finally {
@@ -495,6 +545,7 @@
       resultsList.appendChild(li);
       resultsMeta.textContent = body.from_cache ? "Cached · 0 candidates" : "0 candidates";
       renderResultsHeader(body, profiles);
+      refreshExportUI();
       return;
     }
 
@@ -505,6 +556,12 @@
       node.querySelector("[data-title]").textContent = fields.title || "";
       node.querySelector("[data-company]").textContent = fields.company || "";
       node.querySelector("[data-location]").textContent = fields.location || "—";
+
+      // Stash plain text on the card so CSV export can read it without
+      // re-deriving from the DOM hierarchy.
+      node.dataset.name = fields.name || "";
+      node.dataset.title = fields.title || "";
+      node.dataset.company = fields.company || "";
 
       const sep = node.querySelector("[data-sep]");
       if (!(fields.title && fields.company)) {
@@ -517,6 +574,7 @@
       applyMatchBadge(node, p._match);
 
       const link = node.querySelector("[data-link]");
+      const copyBtn = node.querySelector("[data-copy-linkedin]");
       if (fields.link) {
         link.href = fields.link;
         // Stash the URL on the card itself so the click-to-open-panel handler
@@ -524,6 +582,7 @@
         node.dataset.linkedinUrl = fields.link;
       } else {
         link.remove();
+        if (copyBtn) copyBtn.remove();
       }
 
       resultsList.appendChild(node);
@@ -531,6 +590,7 @@
 
     resultsMeta.textContent = `${body.from_cache ? "Cached" : "Live"} · ${profiles.length} candidate${profiles.length === 1 ? "" : "s"}`;
     renderResultsHeader(body, profiles);
+    refreshExportUI();
   }
 
   function truncate(s, n) {
@@ -603,6 +663,11 @@
       "seniority",
       "years_experience_min",
       "years_experience_max",
+      "location_radius_miles",
+      "team_size_led",
+      "stakeholder_range",
+      "technical_depth",
+      "came_from_size",
     ];
     for (const key of scalarFields) {
       if (c[key] != null && c[key] !== "") {
@@ -612,6 +677,27 @@
           touched.push(key);
         }
       }
+    }
+    const toggleFields = [
+      "exclude_overly_senior",
+      "hands_on_leader",
+      "signal_recently_changed",
+      "signal_likely_mobile",
+      "weight_recent_experience",
+    ];
+    for (const key of toggleFields) {
+      if (c[key] === undefined) continue;
+      const el = form.querySelector(`[name="${key}"]`);
+      if (el) {
+        el.checked = !!c[key];
+        if (c[key]) touched.push(key);
+      }
+    }
+    // Legacy back-compat: saved searches stored before the rename used
+    // `recently_changed_jobs`. Map onto the new toggle if present.
+    if (c.recently_changed_jobs && !c.signal_recently_changed) {
+      const el = form.querySelector('[name="signal_recently_changed"]');
+      if (el) { el.checked = true; touched.push("signal_recently_changed"); }
     }
     // Skills come back split into two buckets. Legacy `skills` falls
     // through into nice-to-have so the search doesn't over-restrict on a
@@ -625,27 +711,55 @@
     };
     fillChip("must_have_skills", c.must_have_skills);
     fillChip("nice_to_have_skills", c.nice_to_have_skills);
+    fillChip("project_keywords", c.project_keywords);
+    fillChip("from_companies", c.from_companies);
+    fillChip("career_arc", c.career_arc);
+    fillChip("exclude_titles", c.exclude_titles);
+    fillChip("exclude_companies", c.exclude_companies);
+    fillChip("exclude_skills", c.exclude_skills);
     if ((!c.must_have_skills || !c.must_have_skills.length) &&
         (!c.nice_to_have_skills || !c.nice_to_have_skills.length) &&
         Array.isArray(c.skills) && c.skills.length) {
       fillChip("nice_to_have_skills", c.skills);
     }
-    if (Array.isArray(c.project_keywords) && c.project_keywords.length) {
-      state.project_keywords = c.project_keywords.slice();
-      const wrap = document.querySelector('.chip-input[data-key="project_keywords"]');
-      if (wrap && wrap._render) wrap._render();
-      touched.push("project_keywords");
-    }
+
+    const fillPillGroup = (key, values, selector) => {
+      if (!Array.isArray(values)) return;
+      state[key] = values.slice();
+      const group = document.querySelector(selector);
+      if (!group) return;
+      group.querySelectorAll(".filter-pill, .tier-pill").forEach((btn) => {
+        const v = btn.dataset.value || btn.dataset.tier;
+        const on = values.indexOf(v) >= 0;
+        btn.classList.toggle("is-selected", on);
+        btn.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      if (values.length) touched.push(key);
+    };
+    fillPillGroup("from_tiers", c.from_tiers, "#tier-grid");
+    fillPillGroup("function_areas", c.function_areas, '[data-multi-key="function_areas"]');
+    fillPillGroup("lines_of_defense", c.lines_of_defense, '[data-multi-key="lines_of_defense"]');
+    fillPillGroup("industries", c.industries, '[data-multi-key="industries"]');
+    fillPillGroup("exclude_seniority", c.exclude_seniority, '[data-multi-key="exclude_seniority"]');
+    fillPillGroup("work_preference", c.work_preference, '[data-multi-key="work_preference"]');
+
     if (Array.isArray(c.employers) && c.employers.length) {
       state.employers = c.employers.map((e) => ({
         id: crypto.randomUUID(),
         company: e.company || "",
         start_year: e.start_year || "",
         end_year: e.end_year || "",
+        tenure: e.tenure || "either",
+        company_size: e.company_size || "",
       }));
       renderEmployers();
       touched.push("employers");
     }
+
+    if (c.mode && typeof setMode === "function") {
+      setMode(c.mode);
+    }
+
     return touched;
   }
 
@@ -824,15 +938,41 @@
 
   let previewTimer = null;
   let previewSeq = 0;
+  let lastPreviewCount = null;
+
+  // Bucket the count into the four-tone band the recruiter sees on the gauge.
+  // Both ends — too-few and too-many — surface as warnings, with the empty
+  // case escalated to danger.
+  function previewTone(n) {
+    if (n <= 10) return "red";
+    if (n <= 50) return "yellow";
+    if (n <= 500) return "green";
+    return "yellow";
+  }
 
   async function runPreview() {
     const criteria = collectCriteria();
     if (!hasAnyCriteria(criteria)) {
+      lastPreviewCount = null;
       setPreview("Tune the filters — count appears here before you commit.");
       return;
     }
     const seq = ++previewSeq;
-    setPreview("Checking pool size…", "loading");
+    // Keep the previous number visible during the refresh — replace just the
+    // label with a spinner so the recruiter sees the gauge is updating without
+    // losing context.
+    if (lastPreviewCount != null) {
+      const formatted = lastPreviewCount.toLocaleString();
+      setPreview(
+        `<span class="preview-count__spinner" aria-hidden="true"></span>~<span class="preview-count__big">${formatted}</span> candidates`,
+        "loading",
+      );
+    } else {
+      setPreview(
+        `<span class="preview-count__spinner" aria-hidden="true"></span>Checking pool size…`,
+        "loading",
+      );
+    }
     try {
       const res = await fetch("/api/preview", {
         method: "POST",
@@ -849,19 +989,21 @@
       if (n === 0) {
         const fallback = body.fallback_count || 0;
         const fallbackMode = body.fallback_mode || "similar";
+        lastPreviewCount = 0;
         if (fallback > 0) {
           const formatted = fallback.toLocaleString();
           const modeLabel = fallbackMode.charAt(0).toUpperCase() + fallbackMode.slice(1);
           setPreview(
-            `0 strict matches — switch to <strong>${modeLabel}</strong> for ~<span class="preview-count__big">${formatted}</span>`,
-            "warn",
+            `~<span class="preview-count__big">0</span> candidates — switch to <strong>${modeLabel}</strong> for ~${formatted}`,
+            "red",
           );
         } else {
-          setPreview("No candidates match — loosen a filter.", "empty");
+          setPreview("~0 candidates — loosen a filter.", "red");
         }
       } else {
+        lastPreviewCount = n;
         const formatted = n.toLocaleString();
-        setPreview(`~<span class="preview-count__big">${formatted}</span> candidates match`, "ok");
+        setPreview(`~<span class="preview-count__big">${formatted}</span> candidates`, previewTone(n));
       }
     } catch (err) {
       if (seq !== previewSeq) return;
@@ -871,7 +1013,7 @@
 
   function schedulePreview() {
     if (previewTimer) clearTimeout(previewTimer);
-    previewTimer = setTimeout(runPreview, 800);
+    previewTimer = setTimeout(runPreview, 300);
   }
 
   // Trigger preview on any form change. `input` covers text, number, select.
@@ -880,20 +1022,66 @@
 
   // ---------- Mode toggle ----------
   const modeButtons = $$(".mode-toggle__option");
-  modeButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const next = btn.dataset.mode;
-      if (!next || next === currentMode) return;
-      currentMode = next;
-      modeButtons.forEach((b) => {
-        const active = b.dataset.mode === currentMode;
-        b.classList.toggle("is-active", active);
-        b.setAttribute("aria-checked", active ? "true" : "false");
-      });
-      // Preview reflects the active mode too — re-run it on the new operator.
-      schedulePreview();
+
+  function setMode(next) {
+    if (!next || next === currentMode) return;
+    if (!["exact", "similar", "broad"].includes(next)) return;
+    currentMode = next;
+    modeButtons.forEach((b) => {
+      const active = b.dataset.mode === currentMode;
+      b.classList.toggle("is-active", active);
+      b.setAttribute("aria-checked", active ? "true" : "false");
     });
+    // Preview reflects the active mode too — re-run it on the new operator.
+    schedulePreview();
+    // Title disclosure also depends on mode — refresh the "Also matching"
+    // line so Similar/Broad's wider variants surface immediately.
+    refreshTitleVariants();
+  }
+
+  modeButtons.forEach((btn) => {
+    btn.addEventListener("click", () => setMode(btn.dataset.mode));
   });
+
+  // ---------- Title-variant disclosure ----------
+  const titleInput = form.querySelector('input[name="current_title"]');
+  const variantsEl = $("[data-title-variants]");
+
+  async function refreshTitleVariants() {
+    if (!titleInput || !variantsEl) return;
+    const val = (titleInput.value || "").trim();
+    if (!val) {
+      variantsEl.hidden = true;
+      variantsEl.textContent = "";
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/title-variants?title=${encodeURIComponent(val)}&mode=${encodeURIComponent(currentMode)}`,
+      );
+      if (!res.ok) {
+        variantsEl.hidden = true;
+        return;
+      }
+      const body = await res.json();
+      const variants = Array.isArray(body.variants) ? body.variants : [];
+      if (!variants.length) {
+        variantsEl.hidden = true;
+        variantsEl.textContent = "";
+        return;
+      }
+      const shown = variants.slice(0, 2).join(", ");
+      const extra = variants.length > 2 ? ` (+${variants.length - 2} more)` : "";
+      variantsEl.hidden = false;
+      variantsEl.textContent = `Also matching: ${shown}${extra}`;
+    } catch {
+      variantsEl.hidden = true;
+    }
+  }
+
+  if (titleInput) {
+    titleInput.addEventListener("blur", refreshTitleVariants);
+  }
 
   // ---------- Join-Croot modal ----------
   const PERSONAL_EMAIL_DOMAINS = new Set([
@@ -1067,9 +1255,12 @@
   });
 
   // Delegate card clicks. Skip clicks on the inline LinkedIn link so it
-  // still works as a real anchor.
+  // still works as a real anchor, and skip the per-card select checkbox and
+  // copy-LinkedIn button so they don't open the profile panel.
   resultsList.addEventListener("click", async (e) => {
     if (e.target.closest(".card__link")) return;
+    if (e.target.closest(".card__select")) return;
+    if (e.target.closest("[data-copy-linkedin]")) return;
     const card = e.target.closest(".card");
     if (!card) return;
     const linkedin = card.dataset.linkedinUrl;
@@ -1082,6 +1273,127 @@
     }
     loadProfile(linkedin);
   });
+
+  // ---------- Outreach Phase 1 — Copy LinkedIn + CSV export ----------
+  const exportBar = $("#export-bar");
+  const exportCountEl = $("[data-export-count]");
+  const exportCsvBtn = $("#export-csv");
+  const selectAllWrap = $("[data-results-select-all]");
+  const selectAllBox = $("#results-select-all");
+  const selectedLinkedins = new Set();
+
+  function refreshExportUI() {
+    const cards = resultsList.querySelectorAll(".card");
+    const selectable = Array.from(cards).filter((c) => c.dataset.linkedinUrl);
+    // Prune dropped LinkedIns from the selection set so a new search doesn't
+    // carry over stale picks.
+    const present = new Set(selectable.map((c) => c.dataset.linkedinUrl));
+    for (const url of Array.from(selectedLinkedins)) {
+      if (!present.has(url)) selectedLinkedins.delete(url);
+    }
+    // Sync checkboxes with the set.
+    selectable.forEach((card) => {
+      const cb = card.querySelector("[data-card-select]");
+      if (cb) cb.checked = selectedLinkedins.has(card.dataset.linkedinUrl);
+    });
+    if (selectAllWrap) selectAllWrap.hidden = selectable.length === 0;
+    if (selectAllBox) {
+      selectAllBox.checked = selectable.length > 0 && selectedLinkedins.size === selectable.length;
+      selectAllBox.indeterminate =
+        selectedLinkedins.size > 0 && selectedLinkedins.size < selectable.length;
+    }
+    const n = selectedLinkedins.size;
+    if (exportBar) exportBar.hidden = n === 0;
+    if (exportCountEl) exportCountEl.textContent = `${n} selected`;
+  }
+
+  resultsList.addEventListener("change", (e) => {
+    const cb = e.target.closest("[data-card-select]");
+    if (!cb) return;
+    const card = cb.closest(".card");
+    const url = card && card.dataset.linkedinUrl;
+    if (!url) return;
+    if (cb.checked) selectedLinkedins.add(url);
+    else selectedLinkedins.delete(url);
+    refreshExportUI();
+  });
+
+  resultsList.addEventListener("click", (e) => {
+    const copyBtn = e.target.closest("[data-copy-linkedin]");
+    if (!copyBtn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const card = copyBtn.closest(".card");
+    const url = card && card.dataset.linkedinUrl;
+    if (!url) return;
+    const restore = copyBtn.getAttribute("title") || "";
+    const flash = (text) => {
+      copyBtn.setAttribute("title", text);
+      copyBtn.classList.add("is-flash");
+      setTimeout(() => {
+        copyBtn.setAttribute("title", restore);
+        copyBtn.classList.remove("is-flash");
+      }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(
+        () => flash("Copied"),
+        () => flash("Copy failed"),
+      );
+    } else {
+      flash("Clipboard unavailable");
+    }
+  });
+
+  if (selectAllBox) {
+    selectAllBox.addEventListener("change", () => {
+      const cards = resultsList.querySelectorAll(".card");
+      if (selectAllBox.checked) {
+        cards.forEach((c) => {
+          if (c.dataset.linkedinUrl) selectedLinkedins.add(c.dataset.linkedinUrl);
+        });
+      } else {
+        selectedLinkedins.clear();
+      }
+      refreshExportUI();
+    });
+  }
+
+  function csvEscape(value) {
+    const s = value == null ? "" : String(value);
+    if (s.includes(",") || s.includes("\n") || s.includes('"')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+
+  if (exportCsvBtn) {
+    exportCsvBtn.addEventListener("click", () => {
+      const cards = Array.from(resultsList.querySelectorAll(".card"))
+        .filter((c) => c.dataset.linkedinUrl && selectedLinkedins.has(c.dataset.linkedinUrl));
+      if (!cards.length) return;
+      const header = ["name", "current_title", "current_company", "linkedin_url"];
+      const lines = [header.join(",")];
+      for (const c of cards) {
+        lines.push([
+          csvEscape(c.dataset.name),
+          csvEscape(c.dataset.title),
+          csvEscape(c.dataset.company),
+          csvEscape(c.dataset.linkedinUrl),
+        ].join(","));
+      }
+      const csv = lines.join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `croot-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+  }
 
   // Keyboard activation — Enter or Space on a focused card.
   resultsList.addEventListener("keydown", (e) => {
@@ -1321,5 +1633,141 @@
     }
 
     panelBody.innerHTML = parts.join("");
+  }
+
+  // ---------- Saved searches ----------
+  const saveSearchWrap = $("[data-save-search]");
+  const saveSearchOpen = $("[data-save-search-open]");
+  const saveSearchForm = $("[data-save-search-form]");
+  const saveSearchInput = $("[data-save-search-name]");
+  const saveSearchCancel = $("[data-save-search-cancel]");
+  const savedPanel = $("#saved-searches-panel");
+  const savedList = $("#saved-searches-list");
+  const savedCountEl = $("[data-saved-count]");
+
+  function revealSaveSearch() {
+    if (saveSearchWrap) saveSearchWrap.hidden = false;
+  }
+  function resetSaveSearchPrompt() {
+    if (saveSearchOpen) saveSearchOpen.hidden = false;
+    if (saveSearchForm) saveSearchForm.hidden = true;
+    if (saveSearchInput) saveSearchInput.value = "";
+  }
+  if (saveSearchOpen) {
+    saveSearchOpen.addEventListener("click", () => {
+      saveSearchOpen.hidden = true;
+      if (saveSearchForm) {
+        saveSearchForm.hidden = false;
+        saveSearchInput.focus();
+      }
+    });
+  }
+  if (saveSearchCancel) {
+    saveSearchCancel.addEventListener("click", resetSaveSearchPrompt);
+  }
+  if (saveSearchForm) {
+    saveSearchForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = (saveSearchInput.value || "").trim();
+      if (!name) {
+        saveSearchInput.focus();
+        return;
+      }
+      const criteria = collectCriteria();
+      try {
+        const res = await fetch("/api/saved-searches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, criteria, mode: currentMode }),
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          setStatus(body?.error || "Couldn’t save.", "error");
+          return;
+        }
+        setStatus(`Saved "${body.name}".`, "ok");
+        resetSaveSearchPrompt();
+        loadSavedSearches();
+      } catch (err) {
+        setStatus(`Network error: ${err.message || err}`, "error");
+      }
+    });
+  }
+
+  async function loadSavedSearches() {
+    if (!savedList) return;
+    try {
+      const res = await fetch("/api/saved-searches");
+      if (!res.ok) return;
+      const rows = await res.json();
+      savedList.innerHTML = "";
+      if (savedCountEl) {
+        savedCountEl.textContent = rows.length ? `${rows.length} saved` : "none yet";
+      }
+      if (!rows.length) {
+        const li = document.createElement("li");
+        li.className = "saved-searches__empty";
+        li.textContent = "Save a search above to see it here.";
+        savedList.appendChild(li);
+        return;
+      }
+      for (const row of rows) {
+        const li = document.createElement("li");
+        li.className = "saved-search";
+        li.dataset.savedId = row.id;
+        const name = document.createElement("span");
+        name.className = "saved-search__name";
+        name.textContent = row.name;
+        const modeBadge = document.createElement("span");
+        modeBadge.className = "saved-search__mode";
+        modeBadge.textContent = row.mode || "similar";
+        const runBtn = document.createElement("button");
+        runBtn.type = "button";
+        runBtn.className = "saved-search__run";
+        runBtn.textContent = "Run";
+        runBtn.addEventListener("click", () => runSavedSearch(row));
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "saved-search__delete";
+        delBtn.setAttribute("aria-label", `Delete saved search "${row.name}"`);
+        delBtn.textContent = "×";
+        delBtn.addEventListener("click", () => deleteSavedSearch(row.id, li));
+        li.append(name, modeBadge, runBtn, delBtn);
+        savedList.appendChild(li);
+      }
+    } catch {
+      /* silent */
+    }
+  }
+
+  function runSavedSearch(row) {
+    if (!row || !row.criteria) return;
+    applyCriteria(row.criteria);
+    if (row.mode) setMode(row.mode);
+    scrollToCompose();
+    form.requestSubmit();
+  }
+
+  async function deleteSavedSearch(id, listItem) {
+    if (!id) return;
+    try {
+      const res = await fetch(`/api/saved-searches/${id}`, { method: "DELETE" });
+      if (!res.ok) return;
+      if (listItem && listItem.parentNode) listItem.parentNode.removeChild(listItem);
+      loadSavedSearches();
+    } catch {
+      /* silent */
+    }
+  }
+
+  // Lazily fetch the list the first time the panel is opened; refresh on
+  // every subsequent open so the count stays current.
+  if (savedPanel) {
+    savedPanel.addEventListener("toggle", () => {
+      if (savedPanel.open) loadSavedSearches();
+    });
+    // Prime the count badge so the user sees "(none yet)" / "(3 saved)" even
+    // before they expand the panel.
+    loadSavedSearches();
   }
 })();
