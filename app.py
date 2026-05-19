@@ -295,6 +295,9 @@ def normalize_criteria(criteria: dict) -> dict:
     legacy_skills = c.pop("skills", None)
     if legacy_skills and not c.get("must_have_skills"):
         c["must_have_skills"] = list(legacy_skills)
+    c.setdefault("title_cluster", [])
+    c.setdefault("came_from_orgs", [])
+    c.setdefault("came_from_companies", [])
     return c
 
 
@@ -426,6 +429,44 @@ KEYWORDS = [
     "ar", "vr", "xr", "lidar", "laser", "optics", "rf",
     "pcb", "embedded", "firmware", "infrastructure", "devops",
     "security", "cybersecurity", "privacy",
+    "model-based systems engineering",
+    "optical coherence tomography",
+    "guidance navigation control",
+    "photonic integrated circuit",
+    "electro-optical system",
+    "high frequency trading",
+    "quantum communication",
+    "logistics optimization",
+    "algorithmic trading",
+    "battery technology",
+    "climate technology",
+    "free-space optics",
+    "surgical robotics",
+    "autonomous vehicles",
+    "autonomous driving",
+    "threat intelligence",
+    "privacy preserving",
+    "penetration testing",
+    "augmented reality",
+    "federated learning",
+    "quantum computing",
+    "quantum sensing",
+    "medical imaging",
+    "drug discovery",
+    "energy storage",
+    "fleet management",
+    "edge computing",
+    "mixed reality",
+    "virtual reality",
+    "directed energy",
+    "electromagnetics",
+    "plasma physics",
+    "supply chain",
+    "hypersonics",
+    "photonics",
+    "acoustics",
+    "regtech",
+    "nuclear",
 ]
 
 # Schools the parser will pick up by name (otherwise the user can write
@@ -765,6 +806,132 @@ JD_TECH_VOCAB: list[str] = [
     "control panels", "control panel",
     "PLC", "HMI",
     "schematic capture",
+    # Hardware / Optics / Photonics
+    "photonic integrated circuit",
+    "optical coherence tomography",
+    "semiconductor fabrication",
+    "vector network analyzer",
+    "free-space optical",
+    "optical alignment",
+    "wavefront sensing",
+    "optical simulation",
+    "optical metrology",
+    "signal processing",
+    "image processing",
+    "optical testing",
+    "optical design",
+    "laser systems",
+    "fiber optics",
+    "diode laser",
+    "pulsed laser",
+    "electro-optics",
+    "acousto-optics",
+    "embedded C",
+    "beam steering",
+    "beam optics",
+    "CW laser",
+    "thin film",
+    "cleanroom",
+    "interferometry",
+    "spectroscopy",
+    "photonics",
+    "waveguide",
+    "resonator",
+    "LightTools",
+    "LabVIEW",
+    "NX CAD",
+    "CATIA",
+    "Zemax",
+    "CODE V",
+    "FRED",
+    "Oslo",
+    "LiDAR", "LIDAR",
+    "laser",
+    "MEMS", "MOEMS",
+    "ISO 9001", "IPC-610", "MIL-SPEC", "DO-254", "DO-178",
+    # Defense / Aerospace
+    "verification and validation",
+    "requirements management",
+    "model-based systems engineering",
+    "guidance navigation",
+    "inertial navigation",
+    "trajectory analysis",
+    "security clearance",
+    "secret clearance",
+    "antenna design",
+    "systems engineering",
+    "systems integration",
+    "thermal imaging",
+    "flight dynamics",
+    "export control",
+    "electro-optical",
+    "RF systems",
+    "MBSE", "DOORS",
+    "infrared", "radar", "sonar",
+    "EO/IR", "TS/SCI", "MIL-STD", "V&V", "GPS",
+    # Biotech / Medtech
+    "high throughput screening",
+    "regulatory affairs",
+    "fluorescence imaging",
+    "quality systems",
+    "assay development",
+    "clinical trials",
+    "drug discovery",
+    "flow cytometry",
+    "bioinformatics",
+    "cell culture",
+    "microscopy",
+    "confocal",
+    "sequencing",
+    "genomics",
+    "proteomics",
+    "GMP", "GLP",
+    "FDA", "PMA", "CLIA", "CAP",
+    "ISO 13485", "IEC 62304",
+    "510k", "PCR", "ELISA",
+    # Finance / Quant
+    "high frequency trading",
+    "portfolio optimization",
+    "quantitative research",
+    "quantitative analysis",
+    "market microstructure",
+    "execution algorithms",
+    "time series analysis",
+    "stochastic calculus",
+    "algorithmic trading",
+    "signal generation",
+    "options pricing",
+    "risk management",
+    "alpha research",
+    "factor models",
+    "fixed income",
+    "FIX protocol",
+    "derivatives",
+    "backtesting",
+    "order book",
+    "Bloomberg", "Reuters",
+    "HFT",
+    # General technical
+    "model-based systems engineering",
+    "reinforcement learning",
+    "consensus algorithms",
+    "distributed systems",
+    "feature engineering",
+    "computer vision",
+    "object detection",
+    "model deployment",
+    "vector database",
+    "motion planning",
+    "data engineering",
+    "data pipelines",
+    "WebAssembly",
+    "embeddings",
+    "WebGPU", "WebGL", "WASM",
+    "robotics",
+    "simulation",
+    "MLOps",
+    "SLAM", "RAG", "RL",
+    "ETL", "ELT",
 ]
 
 # Words that can act as the head noun of a job title.
@@ -780,6 +947,11 @@ JD_TITLE_HEAD_NOUNS = (
 JD_TITLE_ACRONYMS = {
     "CEO", "CTO", "CFO", "COO", "VP", "AI", "ML", "AE", "SDR", "BDR",
     "PM", "QA", "UX", "UI", "PCB", "PMM", "RF",
+    "LIDAR", "LiDAR", "EO", "IR", "FPGA",
+    "MEMS", "DSP", "ASIC", "SoC", "GPU", "CPU",
+    "GNC", "GN&C", "UAV", "UAS", "ISR",
+    "NLP", "CV", "MLOps", "DevOps", "SecOps",
+    "CPO", "CRO", "GM", "DRI",
 }
 
 
@@ -832,20 +1004,99 @@ def split_jd_sections(text: str) -> dict[str, str]:
     return {k: "\n".join(v).strip() for k, v in sections.items() if v}
 
 
+_TITLE_LOWERCASE_CONNECTORS = {
+    "of", "to", "in", "on", "for", "the", "and", "or", "at", "as", "by",
+}
+
+
 def _normalize_title_case(s: str) -> str:
-    """Title-case a job title while preserving common acronyms."""
+    """Title-case a job title while preserving common acronyms.
+    Exact-case matches in JD_TITLE_ACRONYMS (e.g. "LiDAR") win over uppercase
+    canonicalisation so mixed-case brand acronyms survive. Small connector
+    words ("of", "and", "the", …) stay lowercase in non-initial position so
+    "VP of Engineering" doesn't become "VP Of Engineering"."""
     words = s.split()
     out = []
-    for w in words:
+    for idx, w in enumerate(words):
         stripped = w.strip(".,;:-—()/")
         upper = stripped.upper()
-        if upper in JD_TITLE_ACRONYMS:
+        if stripped in JD_TITLE_ACRONYMS:
+            out.append(stripped)
+        elif upper in JD_TITLE_ACRONYMS:
             out.append(upper)
         elif stripped.isupper() and 2 <= len(stripped) <= 4:
             out.append(stripped)
+        elif idx > 0 and stripped.lower() in _TITLE_LOWERCASE_CONNECTORS:
+            out.append(stripped.lower())
         else:
             out.append(stripped.capitalize() if stripped else w)
     return " ".join(out)
+
+
+# ---------- Title backward-walk (used by extract_jd_title) ----------
+#
+# When we find a head noun in a line (engineer, manager, …), we walk
+# BACKWARDS through preceding tokens to collect up to 3 modifier words so
+# "Senior Laser Systems Engineer" stays intact instead of collapsing to
+# "Engineer". The walk halts at sentence-glue words (articles, common
+# prepositions, conjunctions, JD-prose verbs), at punctuation used as a
+# separator (comma / pipe / dash / em-dash), at marketing fluff that should
+# never appear in a real title, or at any word matched by _JD_TITLE_NOISE_RE.
+_TITLE_BACKWARD_STOPS = {
+    # Articles
+    "a", "an", "the",
+    # Prepositions (compound "X of Y" titles handled separately below)
+    "for", "in", "on", "at", "with", "by", "from", "as",
+    # Conjunctions
+    "and", "or", "but",
+    # JD-prose verbs that aren't legitimate title modifiers
+    "is", "are", "be", "seek", "seeking", "hiring", "looking", "looks",
+    "join", "joining", "need", "needs", "want", "wants", "build", "design",
+    "drive", "work", "works", "wanted",
+    # Marketing fluff that doesn't belong in a real title
+    "ninja", "rockstar", "guru", "wizard", "passionate",
+    "amazing", "awesome",
+}
+
+# Prepositions that DON'T halt the walk when immediately preceded by another
+# head noun — that's the "VP of Engineering" / "Director of Operations" /
+# "Head of Product" pattern, which is a legitimate compound title.
+_TITLE_LOOKBACK_PREPS = {"of", "to"}
+
+_TITLE_SEPARATORS = {",", "|", "-", "–", "—"}
+
+
+def _walk_back_title(
+    tokens: list[str], head_idx: int, head_set: set[str],
+) -> list[str]:
+    """Walk backwards from a head-noun token to collect up to 3 modifiers.
+    Returns the modifier-prefixed phrase as a list of original-case tokens."""
+    out = [tokens[head_idx]]
+    count = 0
+    i = head_idx - 1
+    while i >= 0 and count < 3:
+        word = tokens[i]
+        wl = word.lower()
+        if word in _TITLE_SEPARATORS:
+            break
+        if _JD_TITLE_NOISE_RE.search(word):
+            break
+        if wl in _TITLE_LOOKBACK_PREPS:
+            # "VP of Engineering" — only include the preposition + one more
+            # token if that token is itself a head noun.
+            if i > 0 and tokens[i - 1].lower() in head_set and count + 2 <= 3:
+                out.insert(0, tokens[i])
+                out.insert(0, tokens[i - 1])
+                i -= 2
+                count += 2
+                continue
+            break
+        if wl in _TITLE_BACKWARD_STOPS:
+            break
+        out.insert(0, word)
+        i -= 1
+        count += 1
+    return out
 
 
 _JD_TITLE_HEAD_RE = "|".join(JD_TITLE_HEAD_NOUNS)
@@ -896,26 +1147,65 @@ def extract_jd_title(intro: str) -> str | None:
     contain noisy metadata (dates, applicants count, "Save …", "About …"),
     and returns the FIRST clean 2–4-word title-like phrase. Falls back to
     a looser pass if the first pass finds nothing.
+
+    Title construction strategy: tokenise the candidate line, find each
+    head-noun token (engineer / manager / scientist / …), and walk
+    BACKWARDS from each to collect up to 3 modifier words. The longest
+    resulting phrase wins, capped at 4 total words. This preserves
+    multi-word modifiers like "Senior Laser Systems" that the previous
+    regex-only path could drop.
     """
     if not intro:
         return None
-    lines = [l.strip() for l in intro.split("\n") if l.strip()]
+    head_set = {h.lower() for h in JD_TITLE_HEAD_NOUNS}
+    # Long unbroken prose (no newlines) is common when a JD is pasted from a
+    # single paragraph. Split such lines on sentence boundaries so a title
+    # buried in "We are looking for a Senior Laser Systems Engineer to …"
+    # still becomes its own candidate line.
+    raw_lines = [l.strip() for l in intro.split("\n") if l.strip()]
+    lines: list[str] = []
+    for rl in raw_lines:
+        if len(rl) > 120:
+            parts = re.split(r"(?<=[.!?])\s+", rl)
+            for p in parts:
+                p = p.strip()
+                if p:
+                    lines.append(p)
+        else:
+            lines.append(rl)
 
     def _candidate(line: str) -> str | None:
         cleaned = re.sub(
             r"^(?:job\s*title|title|position|role)\s*[:\-–]\s*",
             "", line, flags=re.IGNORECASE,
         ).strip()
-        m = _JD_TITLE_LINE_RE.search(cleaned)
-        if not m:
+        cleaned = _trim_title_suffix(cleaned)
+        if not cleaned:
             return None
-        phrase = _trim_title_suffix(m.group(1))
-        words = phrase.split()
-        if not words:
+        # Tokenise: words (including internal hyphens / slashes / ampersands)
+        # as one token each; separator punctuation as its own token so the
+        # backward walk can halt on it.
+        tokens = re.findall(r"[A-Za-z][A-Za-z0-9\-/&]*|[,|–—-]", cleaned)
+        if not tokens:
             return None
-        # Cap at 4 words per the rule "first 2-4 words that form the role name".
-        words = words[:4]
-        return _normalize_title_case(" ".join(words))
+        head_positions = [
+            i for i, t in enumerate(tokens) if t.lower() in head_set
+        ]
+        if not head_positions:
+            return None
+        best: list[str] | None = None
+        for hi in head_positions:
+            chunk = _walk_back_title(tokens, hi, head_set)
+            if not chunk:
+                continue
+            # Cap at 4 words per the rule "first 2-4 words that form the role name".
+            if len(chunk) > 4:
+                chunk = chunk[-4:]
+            if best is None or len(chunk) > len(best):
+                best = chunk
+        if not best:
+            return None
+        return _normalize_title_case(" ".join(best))
 
     # Pass 1 — first clean line wins.
     for line in lines[:12]:
@@ -1044,7 +1334,10 @@ _MUST_HAVE_CUES = re.compile(
     r"\b("
     r"required|must\s+have|must-have|essential|proficien(?:cy|t)\s+in|"
     r"expertise\s+in|deep\s+experience|strong\s+experience|"
-    r"hands[-\s]?on\s+experience|extensive\s+experience"
+    r"hands[-\s]?on\s+experience|extensive\s+experience|"
+    r"proven\s+experience|"
+    r"minimum\s+\d+\+?\s+(?:years?|yrs)|"
+    r"\d+\+\s*(?:years?|yrs)\s+of"
     r")\b",
     re.IGNORECASE,
 )
@@ -1201,7 +1494,133 @@ def parse_jd(text: str) -> tuple[dict, dict]:
          (inferred from title + YoE, never scraped).
       5. Employers are NEVER auto-filled from a JD — the field is set to
          [] so the frontend wipes any stale selection.
+      6. title_cluster — adjacent / related titles inferred from the
+         extracted title via a local lookup table. Used by the frontend to
+         seed "Good to have" chips.
+      7. came_from_orgs — types of organisations the JD signals would be a
+         good background (Defense, FAANG, Top Startup, …). Inferred by
+         scanning the full cleaned JD text against a signal map.
     """
+    # Local lookup tables — kept inside parse_jd because they are only used
+    # by the inference passes below and aren't part of the public surface.
+    TITLE_CLUSTER_MAP = [
+        ("software engineer", [
+            "Tech Lead", "Staff Engineer", "Senior Software Engineer",
+            "Software Developer", "Senior Backend Engineer",
+        ]),
+        ("frontend engineer", [
+            "UI Engineer", "React Developer", "Web Engineer",
+            "Full Stack Engineer",
+        ]),
+        ("backend engineer", [
+            "Software Engineer", "Platform Engineer",
+            "Infrastructure Engineer", "Full Stack Engineer",
+        ]),
+        ("full stack", [
+            "Software Engineer", "Web Engineer",
+            "Frontend Engineer", "Backend Engineer",
+        ]),
+        ("data engineer", [
+            "Analytics Engineer", "Data Platform Engineer",
+            "Backend Engineer", "ML Engineer",
+        ]),
+        ("machine learning engineer", [
+            "ML Engineer", "AI Engineer", "Research Engineer",
+            "Data Scientist", "MLOps Engineer",
+        ]),
+        ("data scientist", [
+            "ML Engineer", "Research Scientist",
+            "Quantitative Analyst", "Applied Scientist",
+        ]),
+        ("product manager", [
+            "Technical Program Manager", "Group Product Manager",
+            "Senior Product Manager", "Product Lead",
+        ]),
+        ("engineering manager", [
+            "Tech Lead Manager", "Director of Engineering",
+            "Senior Engineering Manager", "Staff Engineer",
+        ]),
+        ("devops", [
+            "Site Reliability Engineer", "Platform Engineer",
+            "Infrastructure Engineer", "Cloud Engineer",
+        ]),
+        ("security engineer", [
+            "AppSec Engineer", "Cloud Security Engineer",
+            "Security Architect", "Penetration Tester",
+        ]),
+        ("optical engineer", [
+            "Photonics Engineer", "Laser Engineer",
+            "Systems Engineer", "Electro-Optical Engineer",
+        ]),
+        ("laser engineer", [
+            "Optical Engineer", "Photonics Engineer",
+            "Electro-Optical Engineer", "Systems Engineer",
+        ]),
+        ("systems engineer", [
+            "Hardware Engineer", "Embedded Engineer",
+            "Integration Engineer", "Aerospace Engineer",
+        ]),
+        ("hardware engineer", [
+            "Electrical Engineer", "Embedded Engineer",
+            "Systems Engineer", "PCB Engineer",
+        ]),
+        ("electrical engineer", [
+            "Hardware Engineer", "Embedded Engineer",
+            "Power Electronics Engineer", "RF Engineer",
+        ]),
+        ("mechanical engineer", [
+            "Systems Engineer", "Structural Engineer",
+            "Design Engineer", "Manufacturing Engineer",
+        ]),
+        ("research scientist", [
+            "Applied Scientist", "ML Research Engineer",
+            "Senior Researcher", "Staff Research Scientist",
+        ]),
+        ("quantitative", [
+            "Quantitative Researcher", "Quantitative Developer",
+            "Algorithmic Trader", "Data Scientist",
+        ]),
+        ("recruiter", [
+            "Talent Acquisition", "Technical Recruiter",
+            "Sourcer", "People Operations",
+        ]),
+    ]
+
+    ORG_SIGNALS = [
+        ("Defense & Government", [
+            "defense", "government", "dod", "department of defense",
+            "itar", "security clearance", "classified", "mil-spec",
+            "military", "federal", "intelligence community",
+        ]),
+        ("FAANG / Big Tech", [
+            "google", "meta", "amazon", "apple", "microsoft",
+            "netflix", "faang", "big tech", "top tech",
+        ]),
+        ("Top Startup", [
+            "fast-paced startup", "early stage", "series a",
+            "series b", "seed stage", "startup experience",
+            "hypergrowth", "scale-up",
+        ]),
+        ("Big Pharma / Healthcare", [
+            "pharmaceutical", "biotech", "medtech", "medical device",
+            "fda", "clinical", "healthcare", "life sciences", "gmp",
+        ]),
+        ("Consulting", [
+            "consulting", "consultancy", "mckinsey", "bcg", "bain",
+            "deloitte", "accenture", "pwc", "kpmg", "ey ",
+        ]),
+        ("Big Bank", [
+            "investment bank", "goldman", "morgan stanley",
+            "jp morgan", "jpmorgan", "citadel", "two sigma",
+            "hedge fund", "asset management", "financial services",
+        ]),
+        ("Top University", [
+            "phd required", "phd preferred", "doctorate",
+            "research university", "academic background",
+            "postdoc", "national lab",
+        ]),
+    ]
+
     if not text or not text.strip():
         return {}, {}
 
@@ -1271,6 +1690,30 @@ def parse_jd(text: str) -> tuple[dict, dict]:
     if project_keywords:
         criteria["project_keywords"] = project_keywords
         sources["project_keywords"] = "Qualifications"
+
+    # Infer title_cluster from the extracted title via the local map.
+    # First substring match wins. The primary title itself is filtered out
+    # of the cluster so the chip list doesn't duplicate the role line.
+    title_cluster: list[str] = []
+    extracted_title = criteria.get("current_title") or ""
+    if extracted_title:
+        title_lower = extracted_title.lower()
+        for needle, cluster in TITLE_CLUSTER_MAP:
+            if needle in title_lower:
+                title_cluster = [
+                    t for t in cluster if t.lower() != title_lower
+                ]
+                break
+    criteria["title_cluster"] = title_cluster
+
+    # Infer came_from_orgs from full-JD-text signals. Any signal hit anywhere
+    # in the cleaned JD adds that org type. Multiple matches are allowed.
+    text_lower = text.lower()
+    came_from_orgs: list[str] = []
+    for org_type, signals in ORG_SIGNALS:
+        if any(sig in text_lower for sig in signals):
+            came_from_orgs.append(org_type)
+    criteria["came_from_orgs"] = came_from_orgs
 
     return criteria, sources
 

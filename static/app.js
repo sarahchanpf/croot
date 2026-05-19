@@ -711,6 +711,21 @@
     };
     fillChip("must_have_skills", c.must_have_skills);
     fillChip("nice_to_have_skills", c.nice_to_have_skills);
+    // Adjacent/related titles inferred from the JD title — surfaced as
+    // "Title: X" chips in the same Good-to-have input so the recruiter can
+    // delete any they don't want before searching.
+    if (Array.isArray(c.title_cluster) && c.title_cluster.length) {
+      if (!Array.isArray(state.nice_to_have_skills)) state.nice_to_have_skills = [];
+      for (const t of c.title_cluster) {
+        const chip = `Title: ${t}`;
+        if (!state.nice_to_have_skills.includes(chip)) {
+          state.nice_to_have_skills.push(chip);
+        }
+      }
+      const wrap = document.querySelector('.chip-input[data-key="nice_to_have_skills"]');
+      if (wrap && wrap._render) wrap._render();
+      touched.push("nice_to_have_skills");
+    }
     fillChip("project_keywords", c.project_keywords);
     fillChip("from_companies", c.from_companies);
     fillChip("career_arc", c.career_arc);
