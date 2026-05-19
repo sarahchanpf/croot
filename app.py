@@ -1503,10 +1503,54 @@ def parse_jd(text: str) -> tuple[dict, dict]:
     """
     # Local lookup tables — kept inside parse_jd because they are only used
     # by the inference passes below and aren't part of the public surface.
+    #
+    # Matching is case-insensitive substring with FIRST match wins. Order
+    # matters: domain-specific keys (laser, optical, photonics, quantitative,
+    # machine learning, …) come BEFORE generic engineer keys (systems /
+    # hardware / electrical / software) so a title like "Senior Laser
+    # Systems Engineer" routes to the optics cluster rather than the
+    # hardware-fallback cluster on "systems engineer".
     TITLE_CLUSTER_MAP = [
-        ("software engineer", [
-            "Tech Lead", "Staff Engineer", "Senior Software Engineer",
-            "Software Developer", "Senior Backend Engineer",
+        # Domain-specific roles
+        ("machine learning engineer", [
+            "ML Engineer", "AI Engineer", "Research Engineer",
+            "Data Scientist", "MLOps Engineer",
+        ]),
+        ("data scientist", [
+            "ML Engineer", "Research Scientist",
+            "Quantitative Analyst", "Applied Scientist",
+        ]),
+        ("research scientist", [
+            "Applied Scientist", "ML Research Engineer",
+            "Senior Researcher", "Staff Research Scientist",
+        ]),
+        ("quantitative", [
+            "Quantitative Researcher", "Quantitative Developer",
+            "Algorithmic Trader", "Data Scientist",
+        ]),
+        ("data engineer", [
+            "Analytics Engineer", "Data Platform Engineer",
+            "Backend Engineer", "ML Engineer",
+        ]),
+        ("devops", [
+            "Site Reliability Engineer", "Platform Engineer",
+            "Infrastructure Engineer", "Cloud Engineer",
+        ]),
+        ("security engineer", [
+            "AppSec Engineer", "Cloud Security Engineer",
+            "Security Architect", "Penetration Tester",
+        ]),
+        ("product manager", [
+            "Technical Program Manager", "Group Product Manager",
+            "Senior Product Manager", "Product Lead",
+        ]),
+        ("engineering manager", [
+            "Tech Lead Manager", "Director of Engineering",
+            "Senior Engineering Manager", "Staff Engineer",
+        ]),
+        ("recruiter", [
+            "Talent Acquisition", "Technical Recruiter",
+            "Sourcer", "People Operations",
         ]),
         ("frontend engineer", [
             "UI Engineer", "React Developer", "Web Engineer",
@@ -1520,50 +1564,23 @@ def parse_jd(text: str) -> tuple[dict, dict]:
             "Software Engineer", "Web Engineer",
             "Frontend Engineer", "Backend Engineer",
         ]),
-        ("data engineer", [
-            "Analytics Engineer", "Data Platform Engineer",
-            "Backend Engineer", "ML Engineer",
+        # Optics / photonics — single-word keys so titles like "Laser Systems
+        # Engineer" or "Optical Test Engineer" match even when an extra
+        # modifier sits between the domain word and "Engineer".
+        ("photonics", [
+            "Optical Engineer", "Laser Engineer",
+            "Electro-Optical Engineer", "Systems Engineer",
         ]),
-        ("machine learning engineer", [
-            "ML Engineer", "AI Engineer", "Research Engineer",
-            "Data Scientist", "MLOps Engineer",
-        ]),
-        ("data scientist", [
-            "ML Engineer", "Research Scientist",
-            "Quantitative Analyst", "Applied Scientist",
-        ]),
-        ("product manager", [
-            "Technical Program Manager", "Group Product Manager",
-            "Senior Product Manager", "Product Lead",
-        ]),
-        ("engineering manager", [
-            "Tech Lead Manager", "Director of Engineering",
-            "Senior Engineering Manager", "Staff Engineer",
-        ]),
-        ("devops", [
-            "Site Reliability Engineer", "Platform Engineer",
-            "Infrastructure Engineer", "Cloud Engineer",
-        ]),
-        ("security engineer", [
-            "AppSec Engineer", "Cloud Security Engineer",
-            "Security Architect", "Penetration Tester",
-        ]),
-        ("optical engineer", [
+        ("optical", [
             "Photonics Engineer", "Laser Engineer",
             "Systems Engineer", "Electro-Optical Engineer",
         ]),
-        ("laser engineer", [
+        ("laser", [
             "Optical Engineer", "Photonics Engineer",
             "Electro-Optical Engineer", "Systems Engineer",
         ]),
-        ("systems engineer", [
-            "Hardware Engineer", "Embedded Engineer",
-            "Integration Engineer", "Aerospace Engineer",
-        ]),
-        ("hardware engineer", [
-            "Electrical Engineer", "Embedded Engineer",
-            "Systems Engineer", "PCB Engineer",
-        ]),
+        # Generic engineering — match last so the domain keys above take
+        # priority on multi-domain titles.
         ("electrical engineer", [
             "Hardware Engineer", "Embedded Engineer",
             "Power Electronics Engineer", "RF Engineer",
@@ -1572,17 +1589,17 @@ def parse_jd(text: str) -> tuple[dict, dict]:
             "Systems Engineer", "Structural Engineer",
             "Design Engineer", "Manufacturing Engineer",
         ]),
-        ("research scientist", [
-            "Applied Scientist", "ML Research Engineer",
-            "Senior Researcher", "Staff Research Scientist",
+        ("hardware engineer", [
+            "Electrical Engineer", "Embedded Engineer",
+            "Systems Engineer", "PCB Engineer",
         ]),
-        ("quantitative", [
-            "Quantitative Researcher", "Quantitative Developer",
-            "Algorithmic Trader", "Data Scientist",
+        ("systems engineer", [
+            "Hardware Engineer", "Embedded Engineer",
+            "Integration Engineer", "Aerospace Engineer",
         ]),
-        ("recruiter", [
-            "Talent Acquisition", "Technical Recruiter",
-            "Sourcer", "People Operations",
+        ("software engineer", [
+            "Tech Lead", "Staff Engineer", "Senior Software Engineer",
+            "Software Developer", "Senior Backend Engineer",
         ]),
     ]
 
