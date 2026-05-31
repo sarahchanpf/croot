@@ -3,45 +3,103 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Croot — find candidates</title>
+  <title>Candidate Finder — Croot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
 </head>
 <body>
+  <!-- Top bar -->
   <header class="topbar">
-    <span class="brand">Croot</span>
-    <span class="tagline">Describe the role — we'll find the people.</span>
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+        <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
+        <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
+      </svg>
+      <span class="brand-name">Candidate Finder</span>
+    </div>
+    <button id="open-advanced" class="btn-ghost" type="button">
+      <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      Advanced Search
+    </button>
   </header>
 
-  <main class="layout">
-    <!-- Conversational intake -->
-    <section class="chat" aria-label="Chat">
-      <div id="messages" class="messages">
-        <div class="msg assistant">
-          Tell me who you're looking for — a role, a few requirements, or paste
-          a job description or its URL. I'll pull out the details and we can
-          review before searching.
+  <main class="page">
+    <!-- Intake card -->
+    <section class="card intake">
+      <label class="field-label" for="describe">Describe your ideal candidate or paste a job description</label>
+      <textarea id="describe" class="input area" rows="3"
+        placeholder="e.g. Senior full-stack engineer with React and Node.js experience, 5+ years, startup background…"></textarea>
+
+      <div class="two-col">
+        <div>
+          <label class="field-label" for="jd-link">Or paste job description link</label>
+          <input id="jd-link" class="input" type="url" placeholder="https://example.com/job-description" />
+        </div>
+        <div>
+          <label class="field-label">Or upload JD file</label>
+          <div class="file-row">
+            <label class="btn-file" for="jd-file">Choose File</label>
+            <input id="jd-file" type="file" accept=".pdf,.docx,.txt" hidden />
+            <span id="jd-file-name" class="file-name muted">No file chosen</span>
+          </div>
         </div>
       </div>
-      <form id="composer" class="composer">
-        <textarea id="input" rows="2"
-          placeholder="e.g. senior backend engineer in NYC, ex-fintech, 5+ years — or paste a JD / URL"></textarea>
-        <button type="submit">Send</button>
-      </form>
+
+      <label class="field-label" for="notes">Additional notes or criteria (optional)</label>
+      <textarea id="notes" class="input area" rows="2"
+        placeholder="e.g. must have startup experience, willing to relocate, open to contract roles…"></textarea>
+
+      <button id="search-candidates" class="btn-primary" type="button">
+        <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Search Candidates
+      </button>
+
+      <!-- Hybrid follow-up (hidden until the model asks for more) -->
+      <div id="followup" class="followup" hidden>
+        <p id="followup-text" class="followup-text"></p>
+        <div class="followup-row">
+          <input id="followup-input" class="input" type="text" placeholder="Add a detail, or just search…" />
+          <button id="followup-send" class="btn-primary sm" type="button">Send</button>
+          <button id="search-anyway" class="btn-ghost sm" type="button">Search anyway</button>
+        </div>
+      </div>
     </section>
 
-    <!-- Criteria review + results -->
-    <aside class="side">
-      <div id="criteria" class="panel">
-        <h2>Criteria</h2>
-        <p class="muted">Extracted fields will appear here for you to review and
-          edit before you run the search.</p>
+    <p id="status" class="status muted">Enter a candidate description, paste a link, or upload a file above to find matching profiles.</p>
+
+    <!-- Results -->
+    <section id="results" class="results" hidden>
+      <div class="results-head">
+        <h2 id="results-title">Top Matches</h2>
+        <div class="results-actions">
+          <span id="relaxed-note" class="relaxed-note" hidden></span>
+          <button id="export-csv" class="btn-ghost sm" type="button">Export CSV</button>
+        </div>
       </div>
-      <div id="results" class="panel">
-        <h2>Candidates</h2>
-        <p class="muted">Ranked results show up here after a search.</p>
-      </div>
-    </aside>
+      <div id="cards" class="cards"></div>
+    </section>
   </main>
+
+  <!-- Advanced Search modal -->
+  <div id="advanced-modal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="adv-title">
+      <header class="modal-head">
+        <h2 id="adv-title">Advanced Search Filters</h2>
+        <button id="close-advanced" class="icon-btn" type="button" aria-label="Close">×</button>
+      </header>
+
+      <div class="modal-body" id="adv-fields"><!-- fields injected by app.js --></div>
+
+      <footer class="modal-foot">
+        <span class="estimate">Estimated candidates matching your criteria:
+          <strong id="estimate-count">—</strong></span>
+        <button id="apply-filters" class="btn-primary" type="button">Apply Filters</button>
+      </footer>
+    </div>
+  </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
