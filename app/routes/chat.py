@@ -16,7 +16,7 @@ returns 503 and the UI falls back to Advanced Search (manual criteria).
 
 from flask import Blueprint, jsonify, request
 
-from ..core import intake, jd_fetch
+from ..core import cluster_finder, intake, jd_fetch
 from ..core.intake import IntakeError
 from ..llm import LLMUnavailable
 
@@ -65,6 +65,19 @@ def chat():
         return jsonify({"error": str(exc)}), 503
     except IntakeError as exc:
         return jsonify({"error": str(exc)}), exc.status
+
+    # Dedicated cluster step: when intake wants a company cluster but hasn't been
+    # handed explicit names, build the best peer set with the stronger model.
+    wants_cluster = bool(criteria.cluster_hint) or (
+        criteria.anchor_strategy in ("companies", "both") and not criteria.anchor_companies
+    )
+    if wants_cluster:
+        companies = cluster_finder.find_cluster(criteria)  # fail-soft -> []
+        if companies:
+            have = {c.lower() for c in criteria.anchor_companies}
+            criteria.anchor_companies += [c for c in companies if c.lower() not in have]
+            if criteria.anchor_strategy == "none":
+                criteria.anchor_strategy = "companies"
 
     return jsonify({
         "reply": reply,

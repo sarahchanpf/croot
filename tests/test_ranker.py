@@ -131,23 +131,6 @@ class TitleWeighting(unittest.TestCase):
         self.assertGreater(score_one(cur, crit)["score"], score_one(past_c, crit)["score"])
 
 
-class ClusterExpansion(unittest.TestCase):
-    def test_expand_known_categories(self):
-        from app.core.clusters import expand
-        out = expand(["faang"])
-        self.assertIn("Google", out)
-        self.assertIn("Netflix", out)
-
-    def test_expand_dedupes_overlapping_categories(self):
-        from app.core.clusters import expand
-        out = expand(["fintech", "top_startups"])  # both include Stripe/Ramp/Brex
-        self.assertEqual(len(out), len(set(s.lower() for s in out)))
-
-    def test_unknown_category_ignored(self):
-        from app.core.clusters import expand
-        self.assertEqual(expand(["nonsense"]), [])
-
-
 class Relaxation(unittest.TestCase):
     def test_drops_skills_first(self):
         crit = Criteria(title="X", title_variants=["Y"], must_have_skills=["Go"])

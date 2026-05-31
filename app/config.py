@@ -27,6 +27,9 @@ CRUSTDATA_API_VERSION = "2025-11-01"
 # Sonnet is the default: intake is a short extraction task, so it's far cheaper
 # than Opus with no meaningful quality loss. Override with CLAUDE_MODEL.
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+# The dedicated cluster builder (cluster_finder) uses a stronger model — picking
+# the right peer companies benefits from Opus's broader, more precise knowledge.
+CLUSTER_MODEL = os.environ.get("CLUSTER_MODEL", "claude-opus-4-8")
 
 # --- Persistence ---
 if os.environ.get("VERCEL"):
