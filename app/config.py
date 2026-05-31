@@ -16,9 +16,12 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")  # added later; inta
 CRUSTDATA_SEARCH_URL = "https://api.crustdata.com/screener/persondb/search"
 CRUSTDATA_IDENTIFY_URL = "https://api.crustdata.com/screener/identify/"
 CRUSTDATA_ENRICH_URL = "https://api.crustdata.com/screener/person/enrich"
-# NOTE: verify the exact autocomplete REST path against Crustdata docs before
-# wiring filters.py enum resolution (skill body references the MCP tool name).
-CRUSTDATA_AUTOCOMPLETE_URL = "https://api.crustdata.com/screener/autocomplete/"
+# Autocomplete lives on Crustdata's NEW API (not the legacy /screener search):
+# POST /person/search/autocomplete, Bearer auth + x-api-version header. Returns
+# {"suggestions": [{"value": ...}]}. Values are compatible with the legacy
+# search columns (verified: school + industry feed /screener/persondb/search).
+CRUSTDATA_AUTOCOMPLETE_URL = "https://api.crustdata.com/person/search/autocomplete"
+CRUSTDATA_API_VERSION = "2025-11-01"
 
 # --- Claude (intake only) ---
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")

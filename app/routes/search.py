@@ -34,12 +34,14 @@ def _resolve_anchors(criteria: Criteria) -> Resolved:
     exclude_ids = [cid for c in criteria.exclude_employers if (cid := crustdata.identify(c))]
     hiring_id = crustdata.identify(criteria.hiring_company) if criteria.hiring_company.strip() else None
 
+    # Autocomplete field names are NEW-API names; the values they return are
+    # filtered on the legacy search columns in filters.py (verified compatible).
     industries: list[str] = []
     for ind in criteria.anchor_industries:
-        industries += crustdata.autocomplete("linkedin_industries", ind)
+        industries += crustdata.autocomplete("experience.employment_details.current.company_industries", ind)
     schools: list[str] = []
     for sch in criteria.education.schools:
-        schools += crustdata.autocomplete("education_background.institute_name", sch)
+        schools += crustdata.autocomplete("education.schools.school", sch)
 
     # Pass explicit lists (even empty) so build_filters uses exactly what
     # resolved — never falling back to raw, unresolved enum names.

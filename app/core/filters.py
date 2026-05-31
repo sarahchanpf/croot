@@ -43,15 +43,15 @@ class FIELD:
     CURRENT_TITLE = "current_employers.title"
     CURRENT_COMPANY_ID = "current_employers.company_id"
     PAST_COMPANY_ID = "past_employers.company_id"
-    CURRENT_INDUSTRY = "current_employers.company_industry"
-    PAST_INDUSTRY = "past_employers.company_industry"
+    CURRENT_INDUSTRY = "current_employers.company_industries"
+    PAST_INDUSTRY = "past_employers.company_industries"
     YEARS_AT_COMPANY = "current_employers.years_at_company_raw"
     YOE = "years_of_experience_raw"
     REGION = "region"
     COUNTRY = "location_country"
     SKILLS = "skills"
     SCHOOL = "education_background.institute_name"
-    FIELD_OF_STUDY = "education.field_of_study"
+    FIELD_OF_STUDY = "education_background.field_of_study"
 
 
 @dataclass

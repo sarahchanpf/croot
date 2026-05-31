@@ -58,6 +58,16 @@ def _get_headers() -> dict:
     return {"Authorization": f"Token {config.CRUSTDATA_API_KEY}"}
 
 
+def _autocomplete_headers() -> dict:
+    # Autocomplete is on the NEW API: Bearer auth + version header (the legacy
+    # /screener endpoints use Token auth instead).
+    return {
+        "Authorization": f"Bearer {config.CRUSTDATA_API_KEY}",
+        "Content-Type": "application/json",
+        "x-api-version": config.CRUSTDATA_API_VERSION,
+    }
+
+
 def normalize_linkedin_url(url: str) -> str:
     if not url:
         return ""
@@ -142,21 +152,25 @@ def identify(name: str) -> int | None:
 
 # ---------- autocomplete (fail-soft, never guesses) ----------
 
-def autocomplete(field: str, query: str) -> list[str]:
-    """Resolve enum values (industries, schools) before they're used in `in`
-    clauses. Returns [] on any error/empty — callers then emit no clause rather
-    than a guessed value.
+def autocomplete(field: str, query: str, limit: int = 10) -> list[str]:
+    """Resolve canonical enum values (industries, schools) before they're used
+    in legacy `in` clauses. Calls POST /person/search/autocomplete and returns
+    the suggestion values. Fail-soft: returns [] on any error so callers emit no
+    clause rather than a guessed value (the skill's hard rule).
 
-    NOTE: verify CRUSTDATA_AUTOCOMPLETE_URL and the param names against the
-    Crustdata REST docs. Built fail-soft so a wrong path degrades to "no enum
-    resolved" instead of a crash or a bad filter.
+    `field` is a NEW-API autocomplete field name (e.g.
+    "experience.employment_details.current.company_industries",
+    "education.schools.school") — distinct from the legacy search column the
+    resulting values get filtered on. Values are verified compatible across the
+    two APIs.
     """
     if not query or not query.strip() or not config.CRUSTDATA_API_KEY:
         return []
     try:
         r = requests.post(
-            config.CRUSTDATA_AUTOCOMPLETE_URL, headers=_post_headers(),
-            json={"field": field, "query": query.strip()}, timeout=_IDENTIFY_TIMEOUT,
+            config.CRUSTDATA_AUTOCOMPLETE_URL, headers=_autocomplete_headers(),
+            json={"field": field, "query": query.strip(), "limit": limit},
+            timeout=_IDENTIFY_TIMEOUT,
         )
         if r.status_code >= 400:
             return []
@@ -164,16 +178,11 @@ def autocomplete(field: str, query: str) -> list[str]:
     except (requests.RequestException, ValueError):
         return []
 
-    # Tolerate a few plausible response shapes; extract canonical string values.
-    items = data if isinstance(data, list) else (data.get("results") or data.get("values") or [])
     out: list[str] = []
-    for it in items:
-        if isinstance(it, str):
-            out.append(it)
-        elif isinstance(it, dict):
-            val = it.get("value") or it.get("name") or it.get("label")
-            if val:
-                out.append(val)
+    for s in (data.get("suggestions") or []):
+        val = s.get("value") if isinstance(s, dict) else s
+        if val:  # skip the occasional blank value the API documents
+            out.append(val)
     return out
 
 
