@@ -166,10 +166,22 @@ def _effective_strategy(criteria: Criteria, company_ids: list[int], industries: 
     return strategy
 
 
-def _anchor_conditions(criteria: Criteria, resolved: Resolved) -> list:
+def _anchor_company_ids_and_industries(criteria: Criteria, resolved: Resolved):
     company_ids = sorted(set(resolved.anchor_company_ids))
     industries = resolved.anchor_industries if resolved.anchor_industries is not None else criteria.anchor_industries
-    industries = _dedupe(industries, lower_key=False)
+    return company_ids, _dedupe(industries, lower_key=False)
+
+
+def _has_company_anchor(criteria: Criteria, resolved: Resolved) -> bool:
+    """True when the search is anchored on a concrete set of companies — a
+    strong, precise narrower. Used to relax the title filter."""
+    company_ids, industries = _anchor_company_ids_and_industries(criteria, resolved)
+    strategy = _effective_strategy(criteria, company_ids, industries)
+    return strategy in ("companies", "both") and bool(company_ids)
+
+
+def _anchor_conditions(criteria: Criteria, resolved: Resolved) -> list:
+    company_ids, industries = _anchor_company_ids_and_industries(criteria, resolved)
 
     strategy = _effective_strategy(criteria, company_ids, industries)
     if strategy == "none":
@@ -234,8 +246,15 @@ def build_filters(
     # excludes qualified people. Must-have skills instead drive the 0-100 score
     # (search wide, rank precisely). The only exception is a skills-only search,
     # where we fall back to filtering on skills so we don't scan the whole DB.
+    #
+    # TITLE is also dropped to scoring-only when a concrete COMPANY cluster
+    # anchors the search: the cluster already narrows the pool precisely, and an
+    # exact-substring title filter would gut it (a "Senior Software Engineer" at
+    # a peer company wouldn't match "Backend Engineer"). The ranker still scores
+    # title, so the right roles float to the top.
     strong: list = []
-    strong += _title_conditions(criteria)
+    if not _has_company_anchor(criteria, resolved):
+        strong += _title_conditions(criteria)
     strong += _location_conditions(criteria, geo_radius_miles)
     strong += _anchor_conditions(criteria, resolved)
     strong += _education_conditions(criteria, resolved)

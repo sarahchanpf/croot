@@ -52,6 +52,21 @@ class Title(unittest.TestCase):
         clause = find(c, FIELD.CURRENT_TITLE, "[.]")
         self.assertEqual(clause["value"], "Backend Engineer")
 
+    def test_title_is_scoring_only_when_company_anchor_present(self):
+        # A concrete company cluster anchors the pool, so title drops to
+        # scoring-only (not a filter clause) and isn't gutted by substring match.
+        crit = Criteria(title="Backend Engineer", anchor_strategy="companies",
+                        anchor_companies=["Stripe"])
+        c = conditions_of(build_filters(crit, Resolved(anchor_company_ids=[101, 102])))
+        self.assertIsNone(find(c, FIELD.CURRENT_TITLE))            # no title filter
+        self.assertTrue(any(x.get("op") == "or" for x in c))      # company anchor present
+
+    def test_title_still_filters_when_only_industry_anchor(self):
+        # Industry anchors are coarse, so title stays a hard filter there.
+        crit = Criteria(title="Backend Engineer", anchor_strategy="industries")
+        c = conditions_of(build_filters(crit, Resolved(anchor_industries=["Financial Services"])))
+        self.assertIsNotNone(find(c, FIELD.CURRENT_TITLE, "[.]"))
+
     def test_multiple_variants_become_or(self):
         crit = Criteria(title="Backend Engineer", title_variants=["SWE", "backend engineer"])
         c = conditions_of(build_filters(crit))

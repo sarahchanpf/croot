@@ -44,17 +44,24 @@ def _title_fraction(criteria: Criteria, cand: dict):
     terms = [t.strip() for t in [criteria.title, *criteria.title_variants] if t and t.strip()]
     if not terms:
         return None
-    # Current title is what matters most — a former engineer now in sales
-    # shouldn't score full title credit off a stale role.
-    current = cand.get("current_title") or ""
-    if any(t.lower() in current.lower() for t in terms):
-        return 1.0
-    titles = cand.get("titles") or []
-    if any(_contains_any(t, titles) for t in terms):
-        return 0.6   # matches only a past title
-    title_words = set().union(*(_words(t) for t in titles)) if titles else set()
-    term_words = set().union(*(_words(t) for t in terms))
-    return 0.3 if (term_words & title_words) else 0.0
+    # When a company cluster anchors the pool, title is the primary role signal,
+    # so it must discriminate well. Grade by CURRENT-title fit, with only modest
+    # credit for a stale (past-only) match so career-changers don't tie with
+    # current ICs.
+    current = (cand.get("current_title") or "").lower()
+    if any(t.lower() in current for t in terms):
+        return 1.0                                   # exact role in current title
+    cur_words = _words(current)
+    best = 0.0
+    for t in terms:
+        tw = _words(t)
+        if tw and cur_words:
+            best = max(best, len(tw & cur_words) / len(tw))
+    if best >= 0.5:
+        return 0.6                                   # strong current-title overlap (e.g. "Senior Software Engineer")
+    if any(_contains_any(t, cand.get("titles") or []) for t in terms):
+        return 0.4                                   # only a past title matched
+    return 0.25 if best > 0 else 0.0                 # weak current overlap / none
 
 
 def _skills_detail(criteria: Criteria, cand: dict):
