@@ -1,14 +1,15 @@
 """Opt-in contact enrichment.
 
-GET /api/profile?linkedin_url=...  -> enriched profile (personal email/phone)
+GET /api/profile?linkedin_url=...  -> {profiles: [enriched profile]}
 
 This is the expensive Crustdata call (~4 cr/profile), so it's gated behind an
-explicit user action and cached 30 days. Stubbed until crustdata.enrich lands.
+explicit user action and cached 30 days (per-URL, inside crustdata.enrich).
 """
 
 from flask import Blueprint, jsonify, request
 
 from ..core import crustdata
+from ..core.crustdata import CrustdataError
 
 bp = Blueprint("profile", __name__)
 
@@ -20,6 +21,8 @@ def profile():
         return jsonify({"error": "linkedin_url is required."}), 400
     try:
         data = crustdata.enrich([url], include_contact=True)
-    except NotImplementedError:
-        return jsonify({"error": "Enrichment not implemented yet."}), 501
+    except CrustdataError as exc:
+        return jsonify({"error": str(exc)}), exc.status
+    if not data["profiles"]:
+        return jsonify({"error": "Profile not found."}), 404
     return jsonify(data)

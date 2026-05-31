@@ -1,12 +1,20 @@
 """Crustdata REST client.
 
-DB-tier search only (people_search_db equivalent), full-fat once. company
-identify is cached 30 days; person enrich is the expensive opt-in step and is
-also cached. All methods return parsed dicts or raise CrustdataError.
+DB-tier search only (full-fat once), identify cached 30 days, enrich cached and
+batched. Network/HTTP failures raise CrustdataError EXCEPT for identify and
+autocomplete, which fail soft (return None / []) — one company that won't
+resolve or one industry that won't autocomplete should never sink a search, and
+never produce a guessed enum value (the skill's hard rule).
+
+Request shapes mirror v1 (which ran against the live endpoints):
+  * search   POST /screener/persondb/search  {filters, limit}
+  * identify POST /screener/identify/         {query_company_name, exact_match, count}
+  * enrich   GET  /screener/person/enrich     ?linkedin_profile_url=...&fields=...
 """
 
 from __future__ import annotations
 
+import json
 import time
 from contextlib import closing
 
@@ -15,6 +23,23 @@ import requests
 from .. import config
 from ..db import db
 
+_TIMEOUT = 30
+_IDENTIFY_TIMEOUT = 10
+
+# Fields requested on enrich. Personal contact info is included only when the
+# caller opts in (it's the expensive part). business_email is intentionally
+# omitted (skill rule: personal contact only).
+_ENRICH_FIELDS_BASE = [
+    "linkedin_profile_url", "linkedin_flagship_url", "name", "location",
+    "headline", "summary", "num_of_connections", "skills", "profile_picture_url",
+    "languages", "current_employers", "past_employers", "all_employers",
+    "education_background", "certifications", "honors",
+]
+_ENRICH_FIELDS_CONTACT = [
+    "personal_contact_info.personal_emails",
+    "personal_contact_info.phone_numbers",
+]
+
 
 class CrustdataError(Exception):
     def __init__(self, message: str, status: int = 502):
@@ -22,32 +47,57 @@ class CrustdataError(Exception):
         self.status = status
 
 
-def _headers() -> dict:
+def _post_headers() -> dict:
     return {
         "Authorization": f"Token {config.CRUSTDATA_API_KEY}",
         "Content-Type": "application/json",
     }
 
 
+def _get_headers() -> dict:
+    return {"Authorization": f"Token {config.CRUSTDATA_API_KEY}"}
+
+
+def normalize_linkedin_url(url: str) -> str:
+    if not url:
+        return ""
+    return url.strip().split("?")[0].split("#")[0].rstrip("/").lower()
+
+
+# ---------- search ----------
+
 def search(filters: dict, limit: int = config.SEARCH_LIMIT, sorts: list | None = None) -> dict:
-    """people_search_db, full-fat (compact=false, truncate=false).
+    """people_search_db. Returns the parsed response: {profiles: [...], total_count: N}.
 
-    TODO(impl): POST CRUSTDATA_SEARCH_URL with
-      {"filters": filters, "limit": limit, "sorts": sorts or [],
-       "compact": False, "truncate": False, "format": "json"}.
-    On large pools the raw payload can exceed context — capture, hand straight
-    to pool.compress, never hold the whole thing in memory.
+    The default REST response already carries the fields the ranker needs
+    (skills, employers, education) — verified by v1 — so we don't pass the
+    MCP-only compact/truncate/format flags here.
     """
-    raise NotImplementedError("crustdata.search — see TODO")
+    if not config.CRUSTDATA_API_KEY:
+        raise CrustdataError("CRUSTDATA_API_KEY is not set.", 500)
+    payload: dict = {"filters": filters, "limit": limit}
+    if sorts:
+        payload["sorts"] = sorts
+    try:
+        r = requests.post(config.CRUSTDATA_SEARCH_URL, headers=_post_headers(),
+                          json=payload, timeout=_TIMEOUT)
+    except requests.RequestException as exc:
+        raise CrustdataError(f"Upstream request failed: {exc}", 502)
+    if r.status_code >= 400:
+        raise CrustdataError(f"Crustdata returned {r.status_code}: {r.text[:500]}", r.status_code)
+    return r.json()
 
+
+# ---------- identify (cached, fail-soft) ----------
 
 def identify(name: str) -> int | None:
-    """Resolve a company name -> company_id. Free-ish; cached 30 days (both
-    hits and misses). Ported behaviour from v1's resolve_company_id."""
+    """Resolve a company name -> company_id. Cached 30 days (hits and misses).
+    Returns None on miss or any error — never raises."""
     if not name or not name.strip():
         return None
     key = name.strip().lower()
     now = int(time.time())
+
     try:
         with closing(db()) as conn:
             row = conn.execute(
@@ -57,30 +107,147 @@ def identify(name: str) -> int | None:
         if row and now - row["looked_up_at"] < config.COMPANY_ID_TTL_SECONDS:
             return row["company_id"]
     except Exception:
-        pass  # cache unavailable (read-only fs) — fall through to live lookup
+        pass
 
     if not config.CRUSTDATA_API_KEY:
         return None
-    # TODO(impl): POST CRUSTDATA_IDENTIFY_URL {query_company_name, exact_match:false, count:3},
-    # take data[0].company_id, write through to company_id_cache, return it.
-    raise NotImplementedError("crustdata.identify live lookup — see TODO")
 
+    company_id = None
+    company_name = None
+    try:
+        r = requests.post(
+            config.CRUSTDATA_IDENTIFY_URL, headers=_post_headers(),
+            json={"query_company_name": name.strip(), "exact_match": False, "count": 3},
+            timeout=_IDENTIFY_TIMEOUT,
+        )
+        if r.status_code < 400:
+            data = r.json()
+            if isinstance(data, list) and data:
+                company_id = data[0].get("company_id")
+                company_name = data[0].get("company_name")
+    except requests.RequestException:
+        return None
+
+    try:
+        with closing(db()) as conn, conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO company_id_cache "
+                "(name_normalized, company_id, company_name, looked_up_at) VALUES (?, ?, ?, ?)",
+                (key, company_id, company_name, now),
+            )
+    except Exception:
+        pass
+    return company_id
+
+
+# ---------- autocomplete (fail-soft, never guesses) ----------
 
 def autocomplete(field: str, query: str) -> list[str]:
-    """Resolve enum values for industry / school fields. Required before using
-    `in` clauses on those columns. Not cached (query-bound, not entity-bound).
+    """Resolve enum values (industries, schools) before they're used in `in`
+    clauses. Returns [] on any error/empty — callers then emit no clause rather
+    than a guessed value.
 
-    TODO(impl): call CRUSTDATA_AUTOCOMPLETE_URL (verify path) and return the
-    matched canonical values.
+    NOTE: verify CRUSTDATA_AUTOCOMPLETE_URL and the param names against the
+    Crustdata REST docs. Built fail-soft so a wrong path degrades to "no enum
+    resolved" instead of a crash or a bad filter.
     """
-    raise NotImplementedError("crustdata.autocomplete — see TODO")
+    if not query or not query.strip() or not config.CRUSTDATA_API_KEY:
+        return []
+    try:
+        r = requests.post(
+            config.CRUSTDATA_AUTOCOMPLETE_URL, headers=_post_headers(),
+            json={"field": field, "query": query.strip()}, timeout=_IDENTIFY_TIMEOUT,
+        )
+        if r.status_code >= 400:
+            return []
+        data = r.json()
+    except (requests.RequestException, ValueError):
+        return []
 
+    # Tolerate a few plausible response shapes; extract canonical string values.
+    items = data if isinstance(data, list) else (data.get("results") or data.get("values") or [])
+    out: list[str] = []
+    for it in items:
+        if isinstance(it, str):
+            out.append(it)
+        elif isinstance(it, dict):
+            val = it.get("value") or it.get("name") or it.get("label")
+            if val:
+                out.append(val)
+    return out
+
+
+# ---------- enrich (cached per-url, batched) ----------
 
 def enrich(linkedin_urls: list[str], include_contact: bool = True) -> dict:
-    """person enrich — the expensive (~4 cr/profile) opt-in step. Batches
-    comma-separated URLs in one call; cache-first per URL.
+    """Enrich profiles by LinkedIn URL. Cache-first per URL (30-day TTL); only
+    cache-missed URLs hit Crustdata, batched comma-separated. The expensive
+    call — gated behind an explicit user action upstream.
 
-    TODO(impl): cache lookup per url in profile_cache; for misses POST
-    CRUSTDATA_ENRICH_URL; write through; merge cached + fresh.
+    Returns {"profiles": [...]} preserving input order where data exists.
     """
-    raise NotImplementedError("crustdata.enrich — see TODO")
+    now = int(time.time())
+    by_url: dict[str, dict] = {}
+    misses: list[str] = []
+
+    for url in linkedin_urls:
+        key = normalize_linkedin_url(url)
+        if not key:
+            continue
+        try:
+            with closing(db()) as conn:
+                row = conn.execute(
+                    "SELECT payload, created_at FROM profile_cache WHERE linkedin_key = ?",
+                    (key,),
+                ).fetchone()
+            if row and now - row["created_at"] < config.PROFILE_TTL_SECONDS:
+                by_url[key] = json.loads(row["payload"])
+                continue
+        except Exception:
+            pass
+        misses.append(url)
+
+    if misses:
+        if not config.CRUSTDATA_API_KEY:
+            raise CrustdataError("CRUSTDATA_API_KEY is not set.", 500)
+        fields = list(_ENRICH_FIELDS_BASE)
+        if include_contact:
+            fields += _ENRICH_FIELDS_CONTACT
+        try:
+            r = requests.get(
+                config.CRUSTDATA_ENRICH_URL, headers=_get_headers(),
+                params={"linkedin_profile_url": ",".join(misses), "fields": ",".join(fields)},
+                timeout=_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            raise CrustdataError(f"Upstream request failed: {exc}", 502)
+        if r.status_code >= 400:
+            raise CrustdataError(f"Crustdata returned {r.status_code}: {r.text[:500]}", r.status_code)
+        data = r.json()
+        profiles = data if isinstance(data, list) else [data] if isinstance(data, dict) else []
+        for prof in profiles:
+            if not isinstance(prof, dict):
+                continue
+            purl = prof.get("linkedin_profile_url") or prof.get("linkedin_flagship_url") or ""
+            key = normalize_linkedin_url(purl)
+            if not key:
+                continue
+            by_url[key] = prof
+            try:
+                with closing(db()) as conn, conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO profile_cache (linkedin_key, payload, created_at) "
+                        "VALUES (?, ?, ?)",
+                        (key, json.dumps(prof), now),
+                    )
+            except Exception:
+                pass
+
+    ordered = []
+    seen = set()
+    for url in linkedin_urls:
+        key = normalize_linkedin_url(url)
+        if key in by_url and key not in seen:
+            seen.add(key)
+            ordered.append(by_url[key])
+    return {"profiles": ordered}
