@@ -1,13 +1,17 @@
 import hashlib
 import io
+import ipaddress
 import json
 import os
 import re
+import socket
 import sqlite3
 import sys
 import time
 from contextlib import closing
 from datetime import datetime
+from html import unescape
+from urllib.parse import urljoin, urlparse
 
 import requests
 from dotenv import load_dotenv
@@ -2899,6 +2903,144 @@ def _extract_docx_text(data: bytes) -> str:
         return ""
 
 
+# ---------- URL → JD-text fetcher ----------
+#
+# When the recruiter pastes a job-posting URL instead of the JD body, we
+# fetch the page server-side and feed its text through the normal pipeline.
+# Public ATS pages (Greenhouse, Lever, Ashby, Workable) return real HTML
+# and work well. LinkedIn / Indeed / many Workday tenants return a login
+# wall or a 403 to an unauthenticated request — the helper surfaces that as
+# a recruiter-friendly error suggesting the paste fallback.
+
+_URL_LIKE_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
+_URL_FETCH_TIMEOUT = 10  # seconds
+_URL_FETCH_MAX_BYTES = 2_000_000  # 2 MB cap on the response body
+_URL_FETCH_MAX_REDIRECTS = 3
+_URL_FETCH_MIN_TEXT = 500  # below this, treat as login wall / anti-bot page
+_URL_FETCH_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/120.0 Safari/537.36"
+)
+
+
+def _is_public_host(hostname: str) -> bool:
+    """Resolve hostname and confirm every address it points at is a public
+    routable IP. Blocks SSRF into the metadata service, link-local, loopback,
+    private RFC1918, and reserved ranges."""
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+    except OSError:
+        return False
+    if not infos:
+        return False
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
+            return False
+    return True
+
+
+def _strip_html(html_text: str) -> str:
+    """Lightweight HTML → text. Drops non-textual blocks entirely, replaces
+    block-level tags with newlines so paragraphs survive, removes remaining
+    tags, decodes entities, collapses whitespace."""
+    html_text = re.sub(
+        r"<(script|style|noscript|svg|template|head)\b[^>]*>.*?</\1>",
+        " ",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    html_text = re.sub(
+        r"</?(?:p|div|li|ul|ol|br|h[1-6]|tr|td|section|article|header|"
+        r"footer|main|nav|aside|figure|figcaption)\b[^>]*>",
+        "\n",
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    html_text = re.sub(r"<[^>]+>", "", html_text)
+    html_text = unescape(html_text)
+    html_text = re.sub(r"[ \t]+\n", "\n", html_text)
+    html_text = re.sub(r"\n{3,}", "\n\n", html_text)
+    return html_text.strip()
+
+
+def _fetch_jd_from_url(url: str) -> str:
+    """Fetch a job-posting URL and return its body as plain text.
+
+    SSRF-guarded — only http(s) URLs whose hostname (and every redirect
+    hop's hostname) resolves to a public IP. Caps the response size and
+    request time. Raises ValueError with a recruiter-friendly message on
+    any failure so the route can surface it as a 400."""
+    current = url.strip()
+    for _ in range(_URL_FETCH_MAX_REDIRECTS + 1):
+        parsed = urlparse(current)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise ValueError("Only public http(s) URLs are supported.")
+        if not _is_public_host(parsed.hostname):
+            raise ValueError("URL host isn't reachable from this service.")
+        try:
+            resp = requests.get(
+                current,
+                timeout=_URL_FETCH_TIMEOUT,
+                allow_redirects=False,
+                headers={
+                    "User-Agent": _URL_FETCH_UA,
+                    "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+                stream=True,
+            )
+        except requests.RequestException as exc:
+            raise ValueError(
+                f"Couldn't fetch URL ({exc.__class__.__name__}). "
+                "Try pasting the JD text instead."
+            )
+        if resp.is_redirect or resp.is_permanent_redirect:
+            location = resp.headers.get("Location") or ""
+            resp.close()
+            if not location:
+                raise ValueError("URL redirect was missing a Location header.")
+            current = urljoin(current, location)
+            continue
+        if resp.status_code >= 400:
+            resp.close()
+            raise ValueError(
+                f"URL returned HTTP {resp.status_code} — likely a login wall "
+                "or anti-bot page. Try pasting the JD text instead."
+            )
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in resp.iter_content(chunk_size=64 * 1024):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > _URL_FETCH_MAX_BYTES:
+                resp.close()
+                raise ValueError("URL response too large (max 2 MB).")
+            chunks.append(chunk)
+        resp.close()
+        body = b"".join(chunks)
+        encoding = resp.encoding or resp.apparent_encoding or "utf-8"
+        try:
+            html_text = body.decode(encoding, errors="ignore")
+        except (LookupError, TypeError):
+            html_text = body.decode("utf-8", errors="ignore")
+        text = _strip_html(html_text)
+        if len(text) < _URL_FETCH_MIN_TEXT:
+            raise ValueError(
+                "URL response had too little readable text — likely a login "
+                "wall or anti-bot page. Try pasting the JD text instead."
+            )
+        return text
+    raise ValueError("Too many redirects.")
+
+
 def _read_uploaded_text(file_storage) -> tuple[str, str]:
     """Return (extracted_text, source_label) for a Werkzeug FileStorage.
 
@@ -2930,6 +3072,11 @@ def extract():
     meeting transcript). Accepts either a JSON `{text: ...}` payload (paste
     flow) or a multipart upload with a `file` field (.txt/.pdf/.docx).
 
+    If the JSON `text` payload is a single http(s) URL, the server fetches
+    the page and parses its body (auto-detected — no separate field needed).
+    LinkedIn / Indeed / Workday will typically return a login wall and
+    error out with a paste-it-instead message.
+
     The output shape matches /api/parse so the frontend can reuse the
     auto-fill code path."""
     text = ""
@@ -2942,7 +3089,15 @@ def extract():
             return jsonify({"error": str(exc)}), 400
     else:
         body = request.get_json(force=True, silent=True) or {}
-        text = (body.get("text") or "").strip()
+        raw = (body.get("text") or "").strip()
+        if raw and _URL_LIKE_RE.match(raw):
+            try:
+                text = _fetch_jd_from_url(raw)
+                source = "url"
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+        else:
+            text = raw
 
     text = (text or "").strip()
     if not text:
