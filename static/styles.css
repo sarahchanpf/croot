@@ -132,6 +132,9 @@ body {
 /* ---------- advanced modal ---------- */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(24, 24, 48, 0.42);
   display: flex; align-items: flex-start; justify-content: center; padding: 48px 20px; z-index: 50; overflow-y: auto; }
+/* `display: flex` above overrides the UA [hidden] rule, so re-assert it: the
+   modal must stay hidden until "Advanced Search" is clicked. */
+.modal-backdrop[hidden] { display: none; }
 .modal { background: var(--card); border-radius: var(--radius); width: min(820px, 100%);
   box-shadow: 0 20px 60px rgba(20, 20, 50, 0.25); }
 .modal-head { display: flex; align-items: center; justify-content: space-between;
