@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Croot — find candidates</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">Croot</span>
+    <span class="tagline">Describe the role — we'll find the people.</span>
+  </header>
+
+  <main class="layout">
+    <!-- Conversational intake -->
+    <section class="chat" aria-label="Chat">
+      <div id="messages" class="messages">
+        <div class="msg assistant">
+          Tell me who you're looking for — a role, a few requirements, or paste
+          a job description or its URL. I'll pull out the details and we can
+          review before searching.
+        </div>
+      </div>
+      <form id="composer" class="composer">
+        <textarea id="input" rows="2"
+          placeholder="e.g. senior backend engineer in NYC, ex-fintech, 5+ years — or paste a JD / URL"></textarea>
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <!-- Criteria review + results -->
+    <aside class="side">
+      <div id="criteria" class="panel">
+        <h2>Criteria</h2>
+        <p class="muted">Extracted fields will appear here for you to review and
+          edit before you run the search.</p>
+      </div>
+      <div id="results" class="panel">
+        <h2>Candidates</h2>
+        <p class="muted">Ranked results show up here after a search.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
