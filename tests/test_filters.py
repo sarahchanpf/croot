@@ -93,10 +93,16 @@ class YoEAndTenure(unittest.TestCase):
 
 
 class Skills(unittest.TestCase):
-    def test_must_haves_collapse_to_one_in_clause(self):
+    def test_skills_scoring_only_when_a_strong_narrower_present(self):
+        # With a title to search on, skills are NOT a hard filter (sparse data).
+        c = conditions_of(build_filters(Criteria(title="Engineer", must_have_skills=["Go"])))
+        self.assertIsNone(find(c, FIELD.SKILLS))
+
+    def test_skills_only_search_falls_back_to_filtering(self):
+        # Nothing else to search on -> skills become the filter so we don't scan all.
         c = conditions_of(build_filters(Criteria(must_have_skills=["Go", "Kubernetes", "go"])))
         clause = find(c, FIELD.SKILLS, "in")
-        self.assertEqual(clause["value"], ["Go", "Kubernetes"])  # deduped, OR semantics
+        self.assertEqual(clause["value"], ["Go", "Kubernetes"])
 
     def test_nice_to_haves_never_filter(self):
         c = conditions_of(build_filters(Criteria(nice_to_have_skills=["Rust"])))

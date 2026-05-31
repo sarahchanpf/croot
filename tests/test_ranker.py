@@ -119,6 +119,35 @@ class RankFiltering(unittest.TestCase):
         self.assertGreater(ranked[0]["score"], ranked[1]["score"])
 
 
+class TitleWeighting(unittest.TestCase):
+    def test_current_title_match_scores_higher_than_past_only(self):
+        cur = compress([raw_profile()])[0]  # current title "Senior Backend Engineer"
+        # A profile whose CURRENT role is unrelated but PAST role matched the title.
+        past = raw_profile(person_id="p2",
+                           current_employers=[{"name": "Acme", "title": "Product Manager", "company_id": 5}],
+                           past_employers=[{"name": "Old", "title": "Backend Engineer", "company_id": 6}])
+        past_c = compress([past])[0]
+        crit = Criteria(title="Backend Engineer", tenure_floor_months=None)
+        self.assertGreater(score_one(cur, crit)["score"], score_one(past_c, crit)["score"])
+
+
+class ClusterExpansion(unittest.TestCase):
+    def test_expand_known_categories(self):
+        from app.core.clusters import expand
+        out = expand(["faang"])
+        self.assertIn("Google", out)
+        self.assertIn("Netflix", out)
+
+    def test_expand_dedupes_overlapping_categories(self):
+        from app.core.clusters import expand
+        out = expand(["fintech", "top_startups"])  # both include Stripe/Ramp/Brex
+        self.assertEqual(len(out), len(set(s.lower() for s in out)))
+
+    def test_unknown_category_ignored(self):
+        from app.core.clusters import expand
+        self.assertEqual(expand(["nonsense"]), [])
+
+
 class Relaxation(unittest.TestCase):
     def test_drops_skills_first(self):
         crit = Criteria(title="X", title_variants=["Y"], must_have_skills=["Go"])

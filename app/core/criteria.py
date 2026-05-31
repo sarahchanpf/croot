@@ -57,6 +57,7 @@ class Criteria:
     anchor_strategy: str = "none"                              # one of ANCHOR_STRATEGIES
     anchor_companies: list[str] = field(default_factory=list)  # resolved to company_ids later
     anchor_industries: list[str] = field(default_factory=list) # autocompleted enum values
+    cluster_categories: list[str] = field(default_factory=list)  # curated category keys → companies (see clusters.py)
 
     # --- Exclusions ---
     exclude_employers: list[str] = field(default_factory=list)

@@ -19,6 +19,7 @@ which the chat route surfaces as a 503.
 from __future__ import annotations
 
 from .. import config, llm
+from .clusters import CLUSTER_KEYS
 from .criteria import ANCHOR_STRATEGIES, Criteria
 
 
@@ -35,11 +36,13 @@ Your job each turn: read everything the recruiter has said (and any job descript
 
 Rules:
 - ALWAYS call the `set_criteria` tool, every turn, with the COMPLETE criteria gathered so far across the whole conversation — not just the latest message. Fields you don't know yet stay empty. NEVER invent a value the recruiter didn't state or clearly imply.
+- TITLE: set `title` to the ROLE ONLY — do NOT bake seniority words into it. "senior backend engineer" → title "Backend Engineer", seniority "Senior" (not title "Senior Backend Engineer"). Put 2–4 close equivalents in `title_variants` (e.g. Backend Engineer → "Backend Developer", "Back-End Engineer", "Backend Software Engineer") — close synonyms, not generic broadenings like plain "Software Engineer".
 - Years of experience always carries BOTH a floor and a ceiling. If the recruiter says "5+ years", propose a sensible ceiling for the seniority (e.g. a senior IC "5+" → 5–10) and mention they can change it. Never leave an open-ended "N+".
 - Split skills into must-have vs nice-to-have based on the recruiter's language ("required"/"must" → must-have; "preferred"/"bonus"/"nice" → nice-to-have). When unclear, lean nice-to-have.
 - Anchor strategy decides how Croot narrows to a relevant talent pool. PREFER a concrete COMPANY cluster over a bare industry whenever the brief implies a recognizable set of employers:
   * If the recruiter names specific companies, use those in anchor_companies.
-  * If they reference a CATEGORY of well-known companies — e.g. "top fintech companies", "big banks", "FAANG / big tech", "elite consulting firms", "top startups", "defense primes", "bulge-bracket banks", "big pharma" — expand it YOURSELF into a concrete cluster of 4–15 real, well-known company names in anchor_companies and set anchor_strategy to "companies". Never leave anchor_companies empty in this case. (e.g. fintech → Stripe, Plaid, Adyen, Brex, Ramp, Block, PayPal, Chime; FAANG → Meta, Apple, Amazon, Netflix, Google, Microsoft; big banks → Goldman Sachs, JPMorgan Chase, Morgan Stanley, Bank of America, Citigroup; consulting → McKinsey & Company, Boston Consulting Group, Bain & Company, Deloitte.)
+  * If they reference one of these KNOWN categories, set `cluster_categories` to the matching key(s) and DO NOT hand-list the companies — the backend expands them from a curated, authoritative list: faang, big_tech, fintech, big_banks, quant_trading, consulting, top_startups, defense, big_pharma. (e.g. "top fintech companies" → cluster_categories ["fintech"]; "big banks" → ["big_banks"]; "FAANG" → ["faang"].) Set anchor_strategy to "companies".
+  * If they reference a company category NOT in that list (e.g. a niche vertical), expand it yourself into 4–15 concrete, well-known company names in `anchor_companies` and set anchor_strategy "companies".
   * Use "industries" only when a domain genuinely matters but no recognizable company cluster fits; "both" when both apply; "none" when neither. Note: a bare industry word like "fintech" does NOT map to a canonical industry value, so a company cluster is almost always the better anchor.
 - Set hiring_company to the company doing the hiring (so its own employees are excluded), when known.
 - Ask for AT MOST one or two of the highest-value MISSING fields per turn (usually: title, location, must-have skills, or YoE). Don't re-ask anything already answered. Keep your reply to 1–3 friendly sentences.
@@ -82,8 +85,13 @@ SET_CRITERIA_TOOL = {
                 },
             },
             "anchor_strategy": {"type": "string", "enum": list(ANCHOR_STRATEGIES)},
+            "cluster_categories": {
+                "type": "array",
+                "items": {"type": "string", "enum": list(CLUSTER_KEYS)},
+                "description": "Known company categories; the backend expands these from a curated list. Use instead of hand-listing companies for these categories.",
+            },
             "anchor_companies": {"type": "array", "items": {"type": "string"},
-                                  "description": "Target employers candidates should have worked at."},
+                                  "description": "Specific or niche-category target employers (hand-listed). For known categories use cluster_categories instead."},
             "anchor_industries": {"type": "array", "items": {"type": "string"}},
             "exclude_employers": {"type": "array", "items": {"type": "string"}},
             "title_excludes": {"type": "array", "items": {"type": "string"}},

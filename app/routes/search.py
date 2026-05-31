@@ -17,7 +17,7 @@ as misses in the rationale and the `relaxed` list tells the UI what we loosened.
 from flask import Blueprint, jsonify, request
 
 from .. import config
-from ..core import crustdata, filters as filters_mod, pool, ranker
+from ..core import clusters, crustdata, filters as filters_mod, pool, ranker
 from ..core.criteria import Criteria
 from ..core.crustdata import CrustdataError
 from ..core.filters import Resolved, build_filters
@@ -30,7 +30,15 @@ def _resolve_anchors(criteria: Criteria) -> Resolved:
     """Resolve everything build_filters can't compute itself: company names ->
     ids (identify, cached) and industry/school -> enum values (autocomplete).
     All fail-soft, so an unresolvable name just drops that clause."""
-    company_ids = [cid for c in criteria.anchor_companies if (cid := crustdata.identify(c))]
+    # Curated category keys expand to canonical company names, merged with any
+    # hand-listed anchors (deduped, case-insensitive).
+    names: list[str] = []
+    seen: set[str] = set()
+    for c in list(criteria.anchor_companies) + clusters.expand(criteria.cluster_categories):
+        if c and c.lower() not in seen:
+            seen.add(c.lower())
+            names.append(c)
+    company_ids = [cid for c in names if (cid := crustdata.identify(c))]
     exclude_ids = [cid for c in criteria.exclude_employers if (cid := crustdata.identify(c))]
     hiring_id = crustdata.identify(criteria.hiring_company) if criteria.hiring_company.strip() else None
 

@@ -229,14 +229,22 @@ def build_filters(
     """
     resolved = resolved or Resolved()
 
-    conditions: list = []
-    conditions += _title_conditions(criteria)
-    conditions += _location_conditions(criteria, geo_radius_miles)
+    # "Strong" narrowers define the pool. Skills are deliberately NOT a strong
+    # filter: Crustdata's skills data is sparse, so `skills in [...]` wrongly
+    # excludes qualified people. Must-have skills instead drive the 0-100 score
+    # (search wide, rank precisely). The only exception is a skills-only search,
+    # where we fall back to filtering on skills so we don't scan the whole DB.
+    strong: list = []
+    strong += _title_conditions(criteria)
+    strong += _location_conditions(criteria, geo_radius_miles)
+    strong += _anchor_conditions(criteria, resolved)
+    strong += _education_conditions(criteria, resolved)
+
+    conditions: list = list(strong)
     conditions += _yoe_conditions(criteria)
-    conditions += _skills_conditions(criteria)
-    conditions += _anchor_conditions(criteria, resolved)
-    conditions += _education_conditions(criteria, resolved)
     conditions += _exclusion_conditions(criteria, resolved)
     conditions += _tenure_conditions(criteria)
+    if not strong:
+        conditions += _skills_conditions(criteria)  # fallback: nothing else to search on
 
     return op_and(conditions)

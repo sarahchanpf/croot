@@ -44,12 +44,17 @@ def _title_fraction(criteria: Criteria, cand: dict):
     terms = [t.strip() for t in [criteria.title, *criteria.title_variants] if t and t.strip()]
     if not terms:
         return None
+    # Current title is what matters most — a former engineer now in sales
+    # shouldn't score full title credit off a stale role.
+    current = cand.get("current_title") or ""
+    if any(t.lower() in current.lower() for t in terms):
+        return 1.0
     titles = cand.get("titles") or []
     if any(_contains_any(t, titles) for t in terms):
-        return 1.0
+        return 0.6   # matches only a past title
     title_words = set().union(*(_words(t) for t in titles)) if titles else set()
     term_words = set().union(*(_words(t) for t in terms))
-    return 0.5 if (term_words & title_words) else 0.0
+    return 0.3 if (term_words & title_words) else 0.0
 
 
 def _skills_detail(criteria: Criteria, cand: dict):
@@ -57,6 +62,11 @@ def _skills_detail(criteria: Criteria, cand: dict):
     if not must:
         return None, [], []
     skills_l = [s.lower() for s in (cand.get("top_skills") or [])]
+    if not skills_l:
+        # Crustdata skills data is sparse — no listed skills means "unknown",
+        # not "lacks them". Skip the slot so it neither credits nor penalises,
+        # rather than zeroing out everyone with a thin profile.
+        return None, [], []
     matched = [s for s in must if any(s.lower() in sk for sk in skills_l)]
     missed = [s for s in must if s not in matched]
     return len(matched) / len(must), matched, missed
