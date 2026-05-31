@@ -17,6 +17,7 @@ returns 503 and the UI falls back to Advanced Search (manual criteria).
 from flask import Blueprint, jsonify, request
 
 from ..core import intake, jd_fetch
+from ..core.intake import IntakeError
 from ..llm import LLMUnavailable
 
 bp = Blueprint("chat", __name__)
@@ -62,6 +63,8 @@ def chat():
         reply, criteria, ready = intake.run_turn(messages, jd_text=jd_text)
     except LLMUnavailable as exc:
         return jsonify({"error": str(exc)}), 503
+    except IntakeError as exc:
+        return jsonify({"error": str(exc)}), exc.status
 
     return jsonify({
         "reply": reply,

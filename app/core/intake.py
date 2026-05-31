@@ -21,6 +21,14 @@ from __future__ import annotations
 from .. import config, llm
 from .criteria import ANCHOR_STRATEGIES, Criteria
 
+
+class IntakeError(RuntimeError):
+    """A clean, user-facing failure from the Claude call (e.g. billing / rate
+    limit), so the chat route returns a readable message instead of a 500."""
+    def __init__(self, message: str, status: int = 502):
+        super().__init__(message)
+        self.status = status
+
 SYSTEM_PROMPT = """You are the intake assistant for Croot, a tool recruiters use to source candidates.
 
 Your job each turn: read everything the recruiter has said (and any job description they provided) and capture structured SEARCH CRITERIA, then ask for the single most valuable missing detail.
@@ -123,13 +131,18 @@ def run_turn(messages: list[dict], jd_text: str = "") -> tuple[str, Criteria, bo
                 "or paste a job description.", Criteria(), False)
 
     client = llm.client()
-    resp = client.messages.create(
-        model=config.CLAUDE_MODEL,
-        max_tokens=MAX_TOKENS,
-        system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-        tools=[SET_CRITERIA_TOOL],
-        messages=api_messages,
-    )
+    try:
+        resp = client.messages.create(
+            model=config.CLAUDE_MODEL,
+            max_tokens=MAX_TOKENS,
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            tools=[SET_CRITERIA_TOOL],
+            messages=api_messages,
+        )
+    except Exception as exc:  # anthropic.APIError and friends — surface cleanly
+        body = getattr(exc, "body", None)
+        msg = (body.get("error") or {}).get("message") if isinstance(body, dict) else None
+        raise IntakeError(msg or getattr(exc, "message", None) or str(exc))
 
     reply_parts: list[str] = []
     tool_input: dict | None = None

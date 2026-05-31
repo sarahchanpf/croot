@@ -104,8 +104,17 @@ class ToolParsing(unittest.TestCase):
 
 
 class NoKey(unittest.TestCase):
+    """Force the no-key path regardless of whether .env has a key set."""
+    def setUp(self):
+        from app import config
+        self._key = config.ANTHROPIC_API_KEY
+        config.ANTHROPIC_API_KEY = ""
+
+    def tearDown(self):
+        from app import config
+        config.ANTHROPIC_API_KEY = self._key
+
     def test_run_turn_raises_when_no_api_key(self):
-        # No ANTHROPIC_API_KEY in the test env -> llm.client() raises.
         with self.assertRaises(LLMUnavailable):
             intake.run_turn([{"role": "user", "content": "find me engineers"}])
 

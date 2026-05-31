@@ -24,7 +24,9 @@ CRUSTDATA_AUTOCOMPLETE_URL = "https://api.crustdata.com/person/search/autocomple
 CRUSTDATA_API_VERSION = "2025-11-01"
 
 # --- Claude (intake only) ---
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-opus-4-8")
+# Sonnet is the default: intake is a short extraction task, so it's far cheaper
+# than Opus with no meaningful quality loss. Override with CLAUDE_MODEL.
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 # --- Persistence ---
 if os.environ.get("VERCEL"):
