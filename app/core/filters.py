@@ -9,14 +9,31 @@ Crustdata operator set (do NOT invent others — there is no substring-negation)
     =  !=  exact            in  not_in   set membership (value MUST be a list)
     >  <  >=  <=  numeric/date          geo_distance
 
-Hard rule from the skill: never pass a guessed `company_industry` or
-`education_background.institute_name` enum value — resolve it through
-crustdata.autocomplete first, or the clause silently matches nothing.
+Design: this is a PURE function — it makes no API calls, so it's fully unit-
+testable without a key. Anything that needs Crustdata to resolve (company
+name -> company_id, industry/school -> enum value) is done by the caller and
+passed in via `Resolved`. The hard rule from the skill — never pass a guessed
+`company_industry` / `institute_name` enum value — is therefore enforced at the
+call site (resolve first), not here.
+
+Skills semantics (deliberate, ported from the skill): all must-have skills go
+into ONE `skills in [...]` clause, i.e. "has at least one of these". Strictness
+("has more of them") is enforced by the 0-100 ranker, NOT by AND-ing skill
+clauses at the filter level — that's what zeroed out v1's results and is why the
+skill relaxes the skills clause first. `nice_to_have_skills` never filter.
 """
 
 from __future__ import annotations
 
-from .criteria import Criteria
+from dataclasses import dataclass, field
+
+from .. import config
+from .criteria import ANCHOR_STRATEGIES, Criteria
+
+# Caps ported from the skill's anchor strategy (keep the net from over-widening).
+ANCHOR_COMPANIES_CAP = 15
+ANCHOR_COMPANIES_CAP_BOTH = 10
+ANCHOR_INDUSTRIES_CAP = 4
 
 
 class FIELD:
@@ -34,6 +51,24 @@ class FIELD:
     FIELD_OF_STUDY = "education.field_of_study"
 
 
+@dataclass
+class Resolved:
+    """API-resolved inputs the pure builder can't compute itself.
+
+    A field left at its default means "caller didn't resolve it":
+      * id lists default to [] (no clause emitted),
+      * enum lists default to None, which falls back to the raw criteria values
+        (handy for tests and when intake already supplied clean enums).
+    """
+    hiring_company_id: int | None = None
+    anchor_company_ids: list[int] = field(default_factory=list)
+    exclude_company_ids: list[int] = field(default_factory=list)
+    anchor_industries: list[str] | None = None   # autocompleted enum values
+    schools: list[str] | None = None             # autocompleted enum values
+
+
+# ---------- primitives ----------
+
 def cond(column: str, type_: str, value) -> dict:
     return {"column": column, "type": type_, "value": value}
 
@@ -46,18 +81,159 @@ def op_and(conditions: list) -> dict:
     return {"op": "and", "conditions": conditions}
 
 
-def build_filters(criteria: Criteria, hiring_company_id: int | None = None) -> dict:
-    """Assemble the Crustdata filter payload for a search.
+def _dedupe(values, *, lower_key: bool = True) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in values:
+        v = (v or "").strip()
+        if not v:
+            continue
+        key = v.lower() if lower_key else v
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(v)
+    return out
 
-    TODO(impl): port the skill's per-clause construction:
-      - title variants  -> [.] clauses under an OR
-      - same-employer dedup + anti-cluster -> current_employers.company_id not_in [...]
-      - location        -> region geo_distance OR location_country =
-      - YoE band         -> years_of_experience_raw >= / <= (AND pair)
-      - must-have skills -> skills in [variants...]  (drop if nice-to-have only)
-      - anchor $or       -> company_id in [...] across current+past, and/or industry in [...]
-      - education        -> field_of_study [.] OR-block; institute_name in [enum...]
-      - tenure floor     -> years_at_company_raw >= months/12
-    `title_excludes` is NOT emitted here — it's a local post-filter in ranker.
+
+# ---------- per-stanza helpers (each returns 0+ conditions) ----------
+
+def _title_conditions(criteria: Criteria) -> list:
+    titles = _dedupe([criteria.title, *criteria.title_variants])
+    if not titles:
+        return []
+    clauses = [cond(FIELD.CURRENT_TITLE, "[.]", t) for t in titles]
+    return [clauses[0] if len(clauses) == 1 else op_or(clauses)]
+
+
+def _location_conditions(criteria: Criteria, geo_radius_miles: int) -> list:
+    if criteria.remote_ok:
+        return []  # remote-friendly role: don't pin geography
+    if criteria.location.strip():
+        return [cond(FIELD.REGION, "geo_distance", {
+            "location": criteria.location.strip(),
+            "distance": geo_radius_miles,
+            "unit": "mi",
+        })]
+    if criteria.location_country.strip():
+        return [cond(FIELD.COUNTRY, "=", criteria.location_country.strip())]
+    return []
+
+
+def _yoe_conditions(criteria: Criteria) -> list:
+    out = []
+    if criteria.yoe_min is not None:
+        out.append(cond(FIELD.YOE, ">=", criteria.yoe_min))
+    if criteria.yoe_max is not None:
+        out.append(cond(FIELD.YOE, "<=", criteria.yoe_max))
+    return out
+
+
+def _skills_conditions(criteria: Criteria) -> list:
+    skills = _dedupe(criteria.must_have_skills)
+    if not skills:
+        return []
+    return [cond(FIELD.SKILLS, "in", skills)]
+
+
+def _education_conditions(criteria: Criteria, resolved: Resolved) -> list:
+    out = []
+    majors = _dedupe(criteria.education.majors)
+    if majors:
+        clauses = [cond(FIELD.FIELD_OF_STUDY, "[.]", m) for m in majors]
+        out.append(clauses[0] if len(clauses) == 1 else op_or(clauses))
+    schools = resolved.schools if resolved.schools is not None else criteria.education.schools
+    schools = _dedupe(schools, lower_key=False)
+    if schools:
+        out.append(cond(FIELD.SCHOOL, "in", schools))
+    return out
+
+
+def _effective_strategy(criteria: Criteria, company_ids: list[int], industries: list[str]) -> str:
+    strategy = criteria.anchor_strategy if criteria.anchor_strategy in ANCHOR_STRATEGIES else "none"
+    # Forgiving: if the caller left the default but supplied anchors, infer it
+    # so anchoring isn't silently dropped.
+    if strategy == "none" and (company_ids or industries):
+        if company_ids and industries:
+            strategy = "both"
+        elif company_ids:
+            strategy = "companies"
+        else:
+            strategy = "industries"
+    return strategy
+
+
+def _anchor_conditions(criteria: Criteria, resolved: Resolved) -> list:
+    company_ids = sorted(set(resolved.anchor_company_ids))
+    industries = resolved.anchor_industries if resolved.anchor_industries is not None else criteria.anchor_industries
+    industries = _dedupe(industries, lower_key=False)
+
+    strategy = _effective_strategy(criteria, company_ids, industries)
+    if strategy == "none":
+        return []
+
+    use_companies = strategy in ("companies", "both") and company_ids
+    use_industries = strategy in ("industries", "both") and industries
+    if not (use_companies or use_industries):
+        return []
+
+    cap = ANCHOR_COMPANIES_CAP_BOTH if strategy == "both" else ANCHOR_COMPANIES_CAP
+    or_clauses: list = []
+    if use_companies:
+        ids = company_ids[:cap]
+        or_clauses.append(cond(FIELD.CURRENT_COMPANY_ID, "in", ids))
+        or_clauses.append(cond(FIELD.PAST_COMPANY_ID, "in", ids))
+    if use_industries:
+        inds = industries[:ANCHOR_INDUSTRIES_CAP]
+        or_clauses.append(cond(FIELD.CURRENT_INDUSTRY, "in", inds))
+        or_clauses.append(cond(FIELD.PAST_INDUSTRY, "in", inds))
+
+    # "both" unifies under one outer $or (match any target company OR industry).
+    return [or_clauses[0] if len(or_clauses) == 1 else op_or(or_clauses)]
+
+
+def _exclusion_conditions(criteria: Criteria, resolved: Resolved) -> list:
+    # Same-employer dedup (hiring company) merged with anti-cluster excludes,
+    # both on current_employers.company_id via one not_in.
+    exclude_ids: list[int] = list(resolved.exclude_company_ids)
+    if resolved.hiring_company_id is not None:
+        exclude_ids.append(resolved.hiring_company_id)
+    exclude_ids = sorted(set(exclude_ids))
+    if not exclude_ids:
+        return []
+    return [cond(FIELD.CURRENT_COMPANY_ID, "not_in", exclude_ids)]
+
+
+def _tenure_conditions(criteria: Criteria) -> list:
+    months = criteria.tenure_floor_months
+    if not months or months <= 0:
+        return []
+    return [cond(FIELD.YEARS_AT_COMPANY, ">=", round(months / 12, 2))]
+
+
+# ---------- public builder ----------
+
+def build_filters(
+    criteria: Criteria,
+    resolved: Resolved | None = None,
+    geo_radius_miles: int = config.GEO_RADIUS_DEFAULT_MILES,
+) -> dict:
+    """Assemble the Crustdata filter payload. Pure function.
+
+    `title_excludes` is intentionally NOT emitted here — Crustdata has no
+    substring-negation operator, so it's applied as a local post-filter in the
+    ranker against each candidate's current title.
     """
-    raise NotImplementedError("filters.build_filters — see TODO")
+    resolved = resolved or Resolved()
+
+    conditions: list = []
+    conditions += _title_conditions(criteria)
+    conditions += _location_conditions(criteria, geo_radius_miles)
+    conditions += _yoe_conditions(criteria)
+    conditions += _skills_conditions(criteria)
+    conditions += _anchor_conditions(criteria, resolved)
+    conditions += _education_conditions(criteria, resolved)
+    conditions += _exclusion_conditions(criteria, resolved)
+    conditions += _tenure_conditions(criteria)
+
+    return op_and(conditions)
