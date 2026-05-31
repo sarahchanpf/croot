@@ -7,7 +7,10 @@ $or groups are the anchor clauses and multi-variant title matches.
 Crustdata operator set (do NOT invent others — there is no substring-negation):
     [.]   substring        (.)   fuzzy
     =  !=  exact            in  not_in   set membership (value MUST be a list)
-    >  <  >=  <=  numeric/date          geo_distance
+    =>  =<  numeric/date comparison      geo_distance
+    (NB: Crustdata spells the comparisons "=>" / "=<", NOT ">=" / "<=" — the
+    latter is rejected with "Unknown operator type". Verified against the live
+    API; matches v1's gte/lte helpers.)
 
 Design: this is a PURE function — it makes no API calls, so it's fully unit-
 testable without a key. Anything that needs Crustdata to resolve (company
@@ -123,9 +126,9 @@ def _location_conditions(criteria: Criteria, geo_radius_miles: int) -> list:
 def _yoe_conditions(criteria: Criteria) -> list:
     out = []
     if criteria.yoe_min is not None:
-        out.append(cond(FIELD.YOE, ">=", criteria.yoe_min))
+        out.append(cond(FIELD.YOE, "=>", criteria.yoe_min))
     if criteria.yoe_max is not None:
-        out.append(cond(FIELD.YOE, "<=", criteria.yoe_max))
+        out.append(cond(FIELD.YOE, "=<", criteria.yoe_max))
     return out
 
 
@@ -208,7 +211,7 @@ def _tenure_conditions(criteria: Criteria) -> list:
     months = criteria.tenure_floor_months
     if not months or months <= 0:
         return []
-    return [cond(FIELD.YEARS_AT_COMPANY, ">=", round(months / 12, 2))]
+    return [cond(FIELD.YEARS_AT_COMPANY, "=>", round(months / 12, 2))]
 
 
 # ---------- public builder ----------

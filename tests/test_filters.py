@@ -78,13 +78,14 @@ class Location(unittest.TestCase):
 
 class YoEAndTenure(unittest.TestCase):
     def test_yoe_band_emits_gte_and_lte(self):
+        # Crustdata spells comparisons "=>" / "=<", not ">=" / "<=".
         c = conditions_of(build_filters(Criteria(yoe_min=5, yoe_max=10)))
-        self.assertEqual(find(c, FIELD.YOE, ">=")["value"], 5)
-        self.assertEqual(find(c, FIELD.YOE, "<=")["value"], 10)
+        self.assertEqual(find(c, FIELD.YOE, "=>")["value"], 5)
+        self.assertEqual(find(c, FIELD.YOE, "=<")["value"], 10)
 
     def test_default_tenure_floor_is_six_months(self):
         c = conditions_of(build_filters(Criteria(title="PM")))  # default 6 months
-        self.assertAlmostEqual(find(c, FIELD.YEARS_AT_COMPANY, ">=")["value"], 0.5)
+        self.assertAlmostEqual(find(c, FIELD.YEARS_AT_COMPANY, "=>")["value"], 0.5)
 
     def test_tenure_none_emits_no_clause(self):
         c = conditions_of(build_filters(Criteria(title="PM", tenure_floor_months=None)))

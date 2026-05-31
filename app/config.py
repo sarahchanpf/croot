@@ -2,6 +2,12 @@
 
 import os
 
+from dotenv import load_dotenv
+
+# Load .env for local dev. On Vercel, env vars are injected directly (and there
+# is no .env), so this is a harmless no-op there.
+load_dotenv()
+
 # --- Credentials ---
 CRUSTDATA_API_KEY = os.environ.get("CRUSTDATA_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")  # added later; intake guards on it
