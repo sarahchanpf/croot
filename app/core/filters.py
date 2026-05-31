@@ -28,6 +28,7 @@ skill relaxes the skills clause first. `nice_to_have_skills` never filter.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .. import config
@@ -107,6 +108,23 @@ def _title_conditions(criteria: Criteria) -> list:
         return []
     clauses = [cond(FIELD.CURRENT_TITLE, "[.]", t) for t in titles]
     return [clauses[0] if len(clauses) == 1 else op_or(clauses)]
+
+
+def _role_head(criteria: Criteria) -> str:
+    """The role's head noun (last word of the title), e.g. 'Backend Engineer'
+    -> 'Engineer', 'Product Manager' -> 'Manager'. Used as a loose, function-
+    level title filter under a company anchor."""
+    words = re.findall(r"[A-Za-z]+", criteria.title or "")
+    return words[-1] if words and len(words[-1]) >= 3 else ""
+
+
+def _loose_title_conditions(criteria: Criteria) -> list:
+    """Function-level title filter for anchored searches: keeps the pool to the
+    right ROLE (e.g. engineers) without requiring the exact phrase, so a 'Senior
+    Software Engineer' at a peer is included while founders/investors are not.
+    The ranker still scores the full title to rank the specific role on top."""
+    head = _role_head(criteria)
+    return [cond(FIELD.CURRENT_TITLE, "[.]", head)] if head else []
 
 
 def _location_conditions(criteria: Criteria, geo_radius_miles: int) -> list:
@@ -247,13 +265,16 @@ def build_filters(
     # (search wide, rank precisely). The only exception is a skills-only search,
     # where we fall back to filtering on skills so we don't scan the whole DB.
     #
-    # TITLE is also dropped to scoring-only when a concrete COMPANY cluster
-    # anchors the search: the cluster already narrows the pool precisely, and an
-    # exact-substring title filter would gut it (a "Senior Software Engineer" at
-    # a peer company wouldn't match "Backend Engineer"). The ranker still scores
-    # title, so the right roles float to the top.
+    # TITLE under a concrete COMPANY cluster relaxes to a LOOSE, function-level
+    # filter (the role's head noun) rather than the exact phrase: the cluster +
+    # role keeps the pool relevant (engineers, not founders/investors) while not
+    # gutting it — a "Senior Software Engineer" at a peer still matches "Engineer".
+    # The ranker scores the full title so the specific role floats to the top.
+    # (Without a company anchor, title stays an exact-phrase filter.)
     strong: list = []
-    if not _has_company_anchor(criteria, resolved):
+    if _has_company_anchor(criteria, resolved):
+        strong += _loose_title_conditions(criteria)
+    else:
         strong += _title_conditions(criteria)
     strong += _location_conditions(criteria, geo_radius_miles)
     strong += _anchor_conditions(criteria, resolved)

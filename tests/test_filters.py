@@ -52,14 +52,15 @@ class Title(unittest.TestCase):
         clause = find(c, FIELD.CURRENT_TITLE, "[.]")
         self.assertEqual(clause["value"], "Backend Engineer")
 
-    def test_title_is_scoring_only_when_company_anchor_present(self):
-        # A concrete company cluster anchors the pool, so title drops to
-        # scoring-only (not a filter clause) and isn't gutted by substring match.
+    def test_title_relaxes_to_head_noun_under_company_anchor(self):
+        # A concrete company cluster anchors the pool, so title relaxes to a
+        # loose function-level filter (head noun) instead of the exact phrase.
         crit = Criteria(title="Backend Engineer", anchor_strategy="companies",
                         anchor_companies=["Stripe"])
         c = conditions_of(build_filters(crit, Resolved(anchor_company_ids=[101, 102])))
-        self.assertIsNone(find(c, FIELD.CURRENT_TITLE))            # no title filter
-        self.assertTrue(any(x.get("op") == "or" for x in c))      # company anchor present
+        clause = find(c, FIELD.CURRENT_TITLE, "[.]")
+        self.assertEqual(clause["value"], "Engineer")            # head noun, not full phrase
+        self.assertTrue(any(x.get("op") == "or" for x in c))     # company anchor present
 
     def test_title_still_filters_when_only_industry_anchor(self):
         # Industry anchors are coarse, so title stays a hard filter there.
