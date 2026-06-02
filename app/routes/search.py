@@ -17,7 +17,7 @@ as misses in the rationale and the `relaxed` list tells the UI what we loosened.
 from flask import Blueprint, jsonify, request
 
 from .. import config
-from ..core import crustdata, filters as filters_mod, pool, ranker, smart_rank, sort_picker
+from ..core import crustdata, filters as filters_mod, pool, ranker
 from ..core.criteria import Criteria
 from ..core.crustdata import CrustdataError
 from ..core.filters import Resolved, build_filters
@@ -100,19 +100,14 @@ def search():
     if not payload["conditions"]:
         return jsonify({"error": "Add at least one criterion."}), 400
 
-    body = request.get_json(force=True, silent=True) or {}
-    limit = int(body.get("limit", config.SEARCH_LIMIT))
-    smart = body.get("smart_rank", True)  # emulate the skill's judgment rank by default
-
-    # Sort axis so the fetched sample isn't a random slice (skill Phase 2 sorts).
-    sorts = sort_picker.pick_sorts(criteria)
-    cache_key = cache_key_for({"filters": payload, "limit": limit, "sorts": sorts, "smart": bool(smart)})
+    limit = int((request.get_json(force=True, silent=True) or {}).get("limit", config.SEARCH_LIMIT))
+    cache_key = cache_key_for({"filters": payload, "limit": limit})
     cached = get_cached(cache_key)
     if cached is not None:
         return jsonify({**cached, "from_cache": True})
 
     try:
-        data = crustdata.search(payload, limit=limit, sorts=sorts)
+        data = crustdata.search(payload, limit=limit)
         relaxed: list[str] = []
         # One relaxation pass if the pool is thin. Rank against ORIGINAL criteria.
         if (data.get("total_count") or 0) < config.BROAD_HEALTHY_TOTAL_COUNT:
@@ -122,7 +117,7 @@ def search():
                 relaxed_payload = build_filters(relaxed_criteria, relaxed_resolved,
                                                 geo_radius_miles=new_radius)
                 if relaxed_payload["conditions"]:
-                    data = crustdata.search(relaxed_payload, limit=limit, sorts=sorts)  # preserve sorts
+                    data = crustdata.search(relaxed_payload, limit=limit)
                     relaxed.append(label)
     except CrustdataError as exc:
         return jsonify({"error": str(exc)}), exc.status
@@ -130,9 +125,6 @@ def search():
     candidates = pool.compress(data.get("profiles") or [])
     ranked = ranker.rank(candidates, criteria, hiring_company_id=resolved.hiring_company_id,
                          anchor_company_ids=resolved.anchor_company_ids)
-    # Optional Opus judgment pass over the top N (fail-soft).
-    if smart:
-        ranked = smart_rank.rank(ranked, criteria)
 
     result = {
         "from_cache": False,
@@ -140,8 +132,6 @@ def search():
         "total_count": data.get("total_count") or 0,
         "returned": len(ranked),
         "relaxed": relaxed,
-        "sorted_by": [s["column"] for s in sorts] if sorts else None,
-        "smart_ranked": bool(smart and ranked and ranked[0].get("smart_ranked")),
         "criteria": criteria.to_dict(),
     }
     put_cached(cache_key, {"filters": payload, "limit": limit}, result, _summarize(criteria))

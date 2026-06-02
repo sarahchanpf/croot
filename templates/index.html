@@ -90,16 +90,10 @@
         <textarea id="criteria-summary" class="input criteria-summary-box" rows="3" readonly></textarea>
       </div>
 
-      <div class="search-row">
-        <button id="search-candidates" class="btn-primary" type="button">
-          <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          Search Candidates
-        </button>
-        <label class="smart-toggle" title="Re-rank the top candidates with an AI judgment pass (slower, higher quality)">
-          <input id="smart-rank-toggle" type="checkbox" checked />
-          <span>✨ Smart rank (AI)</span>
-        </label>
-      </div>
+      <button id="search-candidates" class="btn-primary" type="button">
+        <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        Search Candidates
+      </button>
 
       <!-- Hybrid follow-up (hidden until the model asks for more) -->
       <div id="followup" class="followup" hidden>

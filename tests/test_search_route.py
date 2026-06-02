@@ -50,9 +50,6 @@ class SearchRouteBase(unittest.TestCase):
         self._orig_put = sr.put_cached
         sr.get_cached = lambda key: None
         sr.put_cached = lambda *a, **k: None
-        # Neutralize the smart-rank Opus pass so route tests stay offline/fast.
-        self._orig_smart = sr.smart_rank.rank
-        sr.smart_rank.rank = lambda ranked, criteria, top_n=None: ranked
 
     def tearDown(self):
         crustdata.search = self._orig["search"]
@@ -60,7 +57,6 @@ class SearchRouteBase(unittest.TestCase):
         crustdata.autocomplete = self._orig["autocomplete"]
         self._sr.get_cached = self._orig_get
         self._sr.put_cached = self._orig_put
-        self._sr.smart_rank.rank = self._orig_smart
 
 
 class Preview(SearchRouteBase):
