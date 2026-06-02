@@ -107,6 +107,11 @@ body {
 
 #search-candidates { margin-top: 20px; }
 
+.criteria-summary { margin-top: 10px; }
+.criteria-summary-box {
+  min-height: 78px; resize: vertical; color: #3b3f4a; background: #fff;
+}
+
 /* ---------- hybrid follow-up ---------- */
 .followup { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--border-strong); }
 .followup-text { margin: 0 0 10px; color: var(--ink); }

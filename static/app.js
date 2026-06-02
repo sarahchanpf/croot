@@ -35,6 +35,7 @@
     accessProfileSubmit: $("access-profile-submit"),
     accessProfileStatus: $("access-profile-status"),
     describe: $("describe"), notes: $("notes"), jdLink: $("jd-link"),
+    criteriaSummaryWrap: $("criteria-summary-wrap"), criteriaSummary: $("criteria-summary"),
     jdFile: $("jd-file"), jdFileName: $("jd-file-name"),
     search: $("search-candidates"), status: $("status"),
     followup: $("followup"), followupText: $("followup-text"),
@@ -281,6 +282,44 @@
   }
   function closeModal() { els.advModal.hidden = true; }
 
+  function renderCriteriaSummary(criteria) {
+    const c = criteria || {};
+    const education = c.education || {};
+    const lines = [];
+    const add = (label, value) => {
+      if (value == null || value === "") return;
+      if (Array.isArray(value) && !value.length) return;
+      lines.push(`${label}: ${Array.isArray(value) ? value.join(", ") : value}`);
+    };
+
+    add("Role", c.title);
+    add("Title variants", c.title_variants);
+    add("Seniority", c.seniority);
+    if (c.yoe_min != null || c.yoe_max != null) {
+      add("Years", [c.yoe_min ?? "any", c.yoe_max ?? "any"].join(" to "));
+    }
+    add("Location", c.remote_ok ? "Remote ok" : (c.location || c.location_country));
+    add("Must-have skills", c.must_have_skills);
+    add("Nice-to-have skills", c.nice_to_have_skills);
+    add("Domain", c.domain_signals);
+    add("Source companies", c.anchor_companies);
+    add("Company cluster", c.cluster_hint);
+    add("Industries", c.anchor_industries);
+    add("Schools", education.schools);
+    add("Majors", education.majors);
+    add("Exclude employers", c.exclude_employers);
+    add("Exclude titles", c.title_excludes);
+    add("Hiring company", c.hiring_company);
+
+    if (!lines.length) {
+      els.criteriaSummaryWrap.hidden = true;
+      els.criteriaSummary.value = "";
+      return;
+    }
+    els.criteriaSummary.value = lines.join("\n");
+    els.criteriaSummaryWrap.hidden = false;
+  }
+
   // =====================================================================
   // JD extraction (file / link) -> text
   // =====================================================================
@@ -315,6 +354,7 @@
       return;
     }
     els.search.disabled = true;
+    renderCriteriaSummary({});
     setStatus("Reading your brief…");
     try {
       state.jdText = await extractJd();
@@ -349,6 +389,7 @@
     }
 
     state.criteria = data.criteria || {};
+    renderCriteriaSummary(state.criteria);
     state.conversation.push({ role: "assistant", content: data.reply || "" });
 
     if (data.ready_to_search) {
@@ -498,6 +539,7 @@
   els.advModal.addEventListener("click", (e) => { if (e.target === els.advModal) closeModal(); });
   els.applyFilters.addEventListener("click", () => {
     state.criteria = modalToCriteria();
+    renderCriteriaSummary(state.criteria);
     closeModal();
     runSearch();
   });

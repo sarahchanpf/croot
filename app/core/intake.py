@@ -171,5 +171,5 @@ def run_turn(messages: list[dict], jd_text: str = "") -> tuple[str, Criteria, bo
 
     reply = "\n".join(p for p in reply_parts if p).strip()
     if not reply:
-        reply = "Got it — I've updated the criteria on the right."
+        reply = "Got it — I've updated the criteria. Add more or press search anyway to continue."
     return reply, criteria, ready

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Candidate Finder — Croot</title>
+  <title>croot</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet" />
@@ -18,7 +18,7 @@
           <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
           <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
         </svg>
-        <span class="brand-name">Candidate Finder</span>
+        <span class="brand-name">croot</span>
       </div>
 
       <form id="access-password-form" class="access-form">
@@ -51,7 +51,7 @@
         <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
         <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
       </svg>
-      <span class="brand-name">Candidate Finder</span>
+      <span class="brand-name">croot</span>
     </div>
     <button id="open-advanced" class="btn-ghost" type="button">
       <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
@@ -81,9 +81,14 @@
         </div>
       </div>
 
-      <label class="field-label" for="notes">Additional notes or criteria (optional)</label>
+      <label class="field-label" for="notes">Extra details (optional)</label>
       <textarea id="notes" class="input area" rows="2"
         placeholder="e.g. must have startup experience, willing to relocate, open to contract roles…"></textarea>
+
+      <div id="criteria-summary-wrap" class="criteria-summary" hidden>
+        <label class="field-label" for="criteria-summary">Extra terms</label>
+        <textarea id="criteria-summary" class="input criteria-summary-box" rows="3" readonly></textarea>
+      </div>
 
       <button id="search-candidates" class="btn-primary" type="button">
         <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
