@@ -186,3 +186,9 @@ body {
   .cand { grid-template-columns: 1fr; }
   .cand-side { align-items: flex-start; }
 }
+
+/* Smart-rank toggle row (next to Search Candidates) */
+.search-row { display: flex; align-items: center; gap: 16px; margin-top: 20px; flex-wrap: wrap; }
+.search-row #search-candidates { margin-top: 0; }
+.smart-toggle { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); cursor: pointer; user-select: none; }
+.smart-toggle input { accent-color: var(--primary); width: 15px; height: 15px; }

@@ -19,6 +19,7 @@
     jdText: "",         // extracted JD text (file/link)
     results: [],        // last ranked candidates
     accessPassword: "",
+    smartRank: true,    // Opus judgment rank on by default (toggle in the UI)
   };
 
   const $ = (id) => document.getElementById(id);
@@ -46,6 +47,7 @@
     openAdv: $("open-advanced"), closeAdv: $("close-advanced"),
     advModal: $("advanced-modal"), advFields: $("adv-fields"),
     estimate: $("estimate-count"), applyFilters: $("apply-filters"),
+    smartToggle: $("smart-rank-toggle"),
   };
 
   // ---- tiny helpers ----
@@ -418,10 +420,10 @@
   async function runSearch(criteriaOverride) {
     const crit = criteriaOverride || state.criteria;
     els.followup.hidden = true;
-    setStatus("Searching Crustdata…");
+    setStatus(state.smartRank ? "Searching and AI-ranking candidates…" : "Searching Crustdata…");
     const { ok, data } = await api("/api/search", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(crit),
+      body: JSON.stringify({ ...crit, smart_rank: state.smartRank }),
     });
     if (!ok) {
       setStatus(data.error || "Search failed.");
@@ -544,6 +546,10 @@
     runSearch();
   });
   els.exportCsv.addEventListener("click", exportCsv);
+  if (els.smartToggle) {
+    els.smartToggle.checked = state.smartRank;
+    els.smartToggle.addEventListener("change", () => { state.smartRank = els.smartToggle.checked; });
+  }
   els.accessPasswordForm.addEventListener("submit", submitAccessPassword);
   els.accessProfileForm.addEventListener("submit", submitAccessProfile);
 

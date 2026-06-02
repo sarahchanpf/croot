@@ -31,6 +31,10 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 # The dedicated cluster builder (cluster_finder) uses a stronger model — picking
 # the right peer companies benefits from Opus's broader, more precise knowledge.
 CLUSTER_MODEL = os.environ.get("CLUSTER_MODEL", "claude-opus-4-8")
+# Smart-rank (optional Opus judgment pass over the pool — emulates the skill's
+# Phase 6). Bounded to the top N from the deterministic rank to cap cost.
+RANK_MODEL = os.environ.get("RANK_MODEL", "claude-opus-4-8")
+SMART_RANK_TOP_N = int(os.environ.get("SMART_RANK_TOP_N", "30"))  # caps the Opus pass for latency/cost
 
 # --- Persistence ---
 if os.environ.get("VERCEL"):
