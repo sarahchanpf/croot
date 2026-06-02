@@ -18,10 +18,22 @@
     criteria: {},       // Criteria-shaped working object
     jdText: "",         // extracted JD text (file/link)
     results: [],        // last ranked candidates
+    accessPassword: "",
   };
 
   const $ = (id) => document.getElementById(id);
   const els = {
+    accessGate: $("access-gate"),
+    appShell: Array.from(document.querySelectorAll("[data-app-shell]")),
+    accessPasswordForm: $("access-password-form"),
+    accessPassword: $("access-password"),
+    accessPasswordSubmit: $("access-password-submit"),
+    accessPasswordStatus: $("access-password-status"),
+    accessProfileForm: $("access-profile-form"),
+    accessName: $("access-name"),
+    accessEmail: $("access-email"),
+    accessProfileSubmit: $("access-profile-submit"),
+    accessProfileStatus: $("access-profile-status"),
     describe: $("describe"), notes: $("notes"), jdLink: $("jd-link"),
     jdFile: $("jd-file"), jdFileName: $("jd-file-name"),
     search: $("search-candidates"), status: $("status"),
@@ -44,6 +56,94 @@
   }
   const splitList = (s) => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
   const setStatus = (msg) => { els.status.textContent = msg; els.status.hidden = false; };
+
+  // =====================================================================
+  // Alpha access gate
+  // =====================================================================
+  const ACCESS_KEY = "croot.alpha.access";
+
+  function showApp() {
+    if (els.accessGate) els.accessGate.hidden = true;
+    els.appShell.forEach((el) => { el.hidden = false; });
+  }
+
+  function showGate() {
+    if (els.accessGate) els.accessGate.hidden = false;
+    els.appShell.forEach((el) => { el.hidden = true; });
+    setTimeout(() => {
+      const target = els.accessProfileForm.hidden ? els.accessPassword : els.accessName;
+      if (target) target.focus();
+    }, 50);
+  }
+
+  function setAccessStatus(el, msg) {
+    if (el) el.textContent = msg || "";
+  }
+
+  if (localStorage.getItem(ACCESS_KEY)) showApp();
+  else showGate();
+
+  async function submitAccessPassword(e) {
+    e.preventDefault();
+    const password = els.accessPassword.value;
+    if (!password) {
+      setAccessStatus(els.accessPasswordStatus, "Enter the alpha password.");
+      return;
+    }
+    els.accessPasswordSubmit.disabled = true;
+    setAccessStatus(els.accessPasswordStatus, "");
+    let result;
+    try {
+      result = await api("/api/access", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+    } catch (err) {
+      setAccessStatus(els.accessPasswordStatus, "Could not check the password. Try again.");
+      els.accessPasswordSubmit.disabled = false;
+      return;
+    }
+    els.accessPasswordSubmit.disabled = false;
+    if (!result.ok) {
+      setAccessStatus(els.accessPasswordStatus, result.data.error || "Password check failed.");
+      return;
+    }
+    state.accessPassword = password;
+    els.accessPasswordForm.hidden = true;
+    els.accessProfileForm.hidden = false;
+    els.accessName.focus();
+  }
+
+  async function submitAccessProfile(e) {
+    e.preventDefault();
+    const name = els.accessName.value.trim();
+    const email = els.accessEmail.value.trim();
+    if (!name || !email) {
+      setAccessStatus(els.accessProfileStatus, "Enter your name and email.");
+      return;
+    }
+    els.accessProfileSubmit.disabled = true;
+    setAccessStatus(els.accessProfileStatus, "");
+    let result;
+    try {
+      result = await api("/api/access", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: state.accessPassword, name, email }),
+      });
+    } catch (err) {
+      setAccessStatus(els.accessProfileStatus, "Could not save access details. Try again.");
+      els.accessProfileSubmit.disabled = false;
+      return;
+    }
+    els.accessProfileSubmit.disabled = false;
+    if (!result.ok) {
+      setAccessStatus(els.accessProfileStatus, result.data.error || "Could not save access details.");
+      return;
+    }
+    localStorage.setItem(ACCESS_KEY, JSON.stringify({ name, email, at: Date.now() }));
+    state.accessPassword = "";
+    showApp();
+  }
 
   // =====================================================================
   // Advanced Search — field definitions. `key`/`map` wire to the Criteria
@@ -402,6 +502,8 @@
     runSearch();
   });
   els.exportCsv.addEventListener("click", exportCsv);
+  els.accessPasswordForm.addEventListener("submit", submitAccessPassword);
+  els.accessProfileForm.addEventListener("submit", submitAccessProfile);
 
   buildAdvancedFields();
 })();

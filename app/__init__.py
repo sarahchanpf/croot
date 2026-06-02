@@ -34,8 +34,9 @@ def create_app() -> Flask:
     from .routes.profile import bp as profile_bp
     from .routes.history import bp as history_bp
     from .routes.export import bp as export_bp
+    from .routes.access import bp as access_bp
 
-    for bp in (chat_bp, search_bp, profile_bp, history_bp, export_bp):
+    for bp in (chat_bp, search_bp, profile_bp, history_bp, export_bp, access_bp):
         flask_app.register_blueprint(bp)
 
     return flask_app

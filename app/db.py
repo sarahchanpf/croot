@@ -67,6 +67,17 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS access_users (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL,
+                email      TEXT NOT NULL,
+                user_agent TEXT,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
 
 
 # ---------- search cache (best-effort) ----------

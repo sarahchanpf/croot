@@ -10,8 +10,41 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
 </head>
 <body>
+  <section id="access-gate" class="access-gate" aria-label="Croot alpha access">
+    <div class="access-card">
+      <div class="brand access-brand">
+        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+          <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
+          <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
+        </svg>
+        <span class="brand-name">Candidate Finder</span>
+      </div>
+
+      <form id="access-password-form" class="access-form">
+        <h1>Croot alpha</h1>
+        <p class="muted">Enter the alpha password to continue.</p>
+        <label class="field-label" for="access-password">Password</label>
+        <input id="access-password" class="input" type="password" autocomplete="current-password" required />
+        <button id="access-password-submit" class="btn-primary" type="submit">Continue</button>
+        <p id="access-password-status" class="access-status" role="status" aria-live="polite"></p>
+      </form>
+
+      <form id="access-profile-form" class="access-form" hidden>
+        <h1>Tell us who is here</h1>
+        <p class="muted">We will save your name and email for alpha follow-up.</p>
+        <label class="field-label" for="access-name">Name</label>
+        <input id="access-name" class="input" type="text" autocomplete="name" required />
+        <label class="field-label" for="access-email">Email</label>
+        <input id="access-email" class="input" type="email" autocomplete="email" required />
+        <button id="access-profile-submit" class="btn-primary" type="submit">Enter Croot</button>
+        <p id="access-profile-status" class="access-status" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
+
   <!-- Top bar -->
-  <header class="topbar">
+  <header class="topbar" data-app-shell hidden>
     <div class="brand">
       <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -26,7 +59,7 @@
     </button>
   </header>
 
-  <main class="page">
+  <main class="page" data-app-shell hidden>
     <!-- Intake card -->
     <section class="card intake">
       <label class="field-label" for="describe">Describe your ideal candidate or paste a job description</label>
