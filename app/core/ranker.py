@@ -126,7 +126,19 @@ def _location_fraction(criteria: Criteria, cand: dict):
 
 # ---------- scoring ----------
 
-def score_one(cand: dict, criteria: Criteria) -> dict:
+def _anchor_fraction(cand: dict, anchor_ids: set):
+    """Cluster pedigree: 1.0 if the candidate is CURRENTLY at a target/peer
+    company, 0.4 if they only worked at one in the past, else None (n/a)."""
+    if not anchor_ids:
+        return None, None
+    if cand.get("current_company_id") in anchor_ids:
+        return 1.0, "current"
+    if any(cid in anchor_ids for cid in (cand.get("past_company_ids") or [])):
+        return 0.4, "past"
+    return 0.0, None
+
+
+def score_one(cand: dict, criteria: Criteria, anchor_ids: set | None = None) -> dict:
     num = 0.0
     den = 0.0
     matched: list[str] = []
@@ -155,6 +167,20 @@ def score_one(cand: dict, criteria: Criteria) -> dict:
     slot("domain", _domain_fraction(criteria, cand), "domain")
     slot("yoe_seniority", _yoe_seniority_fraction(criteria, cand), "experience/seniority")
     slot("location", _location_fraction(criteria, cand), "location")
+
+    # Cluster pedigree (only when company-anchored): current peer-company
+    # employees rank above people who merely passed through the cluster.
+    anchor_frac, anchor_when = _anchor_fraction(cand, anchor_ids)
+    if anchor_frac is not None:
+        num += W["anchor"] * anchor_frac
+        den += W["anchor"]
+        company = cand.get("current_company") or "a target company"
+        if anchor_when == "current":
+            matched.append(f"currently at {company}")
+        elif anchor_when == "past":
+            matched.append("ex-cluster company")
+        else:
+            missed.append("not at a target company")
 
     # Bonus (nice-to-have): lifts only — adds to num AND den only on a match.
     nice = [s.strip() for s in criteria.nice_to_have_skills if s and s.strip()]
@@ -185,14 +211,17 @@ def score_one(cand: dict, criteria: Criteria) -> dict:
             "matched": matched, "missed": missed}
 
 
-def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | None = None) -> list[dict]:
+def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | None = None,
+         anchor_company_ids: list[int] | None = None) -> list[dict]:
     """Score, drop same-employer matches and title_excludes, sort desc.
 
     Same-employer dedup handles stale DB rows where the candidate already moved
     to the hiring company. title_excludes is the local post-filter standing in
-    for Crustdata's missing substring-negation operator.
+    for Crustdata's missing substring-negation operator. anchor_company_ids
+    enables the cluster-pedigree slot (current peer-company employees rank up).
     """
     excludes = [t.strip().lower() for t in criteria.title_excludes if t and t.strip()]
+    anchor_ids = set(anchor_company_ids or [])
     out: list[dict] = []
     for cand in candidates:
         if hiring_company_id is not None and cand.get("current_company_id") == hiring_company_id:
@@ -200,7 +229,7 @@ def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | No
         current_title = (cand.get("current_title") or "").lower()
         if excludes and any(x in current_title for x in excludes):
             continue
-        out.append({**cand, **score_one(cand, criteria)})
+        out.append({**cand, **score_one(cand, criteria, anchor_ids=anchor_ids)})
     out.sort(key=lambda c: (-c["score"], c.get("crustdata_rank", 0)))
     return out
 

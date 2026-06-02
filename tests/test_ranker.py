@@ -93,6 +93,20 @@ class Scoring(unittest.TestCase):
         crit = Criteria(must_have_skills=["Go"])  # would be 100 without the cap
         self.assertLessEqual(score_one(gap, crit)["score"], 70)
 
+    def test_current_cluster_outranks_past_only(self):
+        # raw_profile: current company_id 10, past company_id 11.
+        cand = compress([raw_profile()])[0]
+        crit = Criteria(title="Backend Engineer", tenure_floor_months=None)
+        current = score_one(cand, crit, anchor_ids={10})["score"]   # currently at peer
+        past = score_one(cand, crit, anchor_ids={11})["score"]      # only ex-peer
+        self.assertGreater(current, past)
+
+    def test_anchor_slot_ignored_without_anchor_ids(self):
+        cand = compress([raw_profile()])[0]
+        crit = Criteria(title="Backend Engineer", tenure_floor_months=None)
+        self.assertEqual(score_one(cand, crit)["score"],
+                         score_one(cand, crit, anchor_ids=set())["score"])
+
     def test_anchor_only_search_gets_neutral_score(self):
         crit = Criteria(anchor_strategy="companies", anchor_companies=["Stripe"],
                         tenure_floor_months=None)

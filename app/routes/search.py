@@ -123,7 +123,8 @@ def search():
         return jsonify({"error": str(exc)}), exc.status
 
     candidates = pool.compress(data.get("profiles") or [])
-    ranked = ranker.rank(candidates, criteria, hiring_company_id=resolved.hiring_company_id)
+    ranked = ranker.rank(candidates, criteria, hiring_company_id=resolved.hiring_company_id,
+                         anchor_company_ids=resolved.anchor_company_ids)
 
     result = {
         "from_cache": False,

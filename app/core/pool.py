@@ -65,6 +65,7 @@ def compress(raw_profiles: list[dict], rank_offset: int = 0) -> list[dict]:
             "yoe": _to_int(p.get("years_of_experience_raw")),
             "current_company": _first(cur, "name", "employer_name"),
             "current_company_id": cur.get("company_id"),
+            "past_company_ids": [e.get("company_id") for e in past if e.get("company_id")],
             "current_title": _first(cur, "title", "employee_title"),
             "current_seniority": cur.get("seniority_level") or "",
             "current_start_date": cur.get("start_date") or "",

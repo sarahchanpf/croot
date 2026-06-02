@@ -57,6 +57,10 @@ RUBRIC_WEIGHTS = {
     "yoe_seniority": 15,
     "location": 10,
     "bonus": 5,
+    # Cluster pedigree — only scored when the search is company-anchored. Being
+    # CURRENTLY at a target/peer company is a strong relevance signal, so people
+    # from the cluster outrank those who merely passed through it years ago.
+    "anchor": 20,
 }
 CAP_CONTRADICTS_EXCLUDE = 40
 CAP_DISQUALIFIER = 60
