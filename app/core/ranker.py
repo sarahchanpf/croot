@@ -201,6 +201,13 @@ def score_one(cand: dict, criteria: Criteria, anchor_ids: set | None = None) -> 
         score = min(score, config.CAP_DATA_GAP)
     if cand.get("yoe") is None and (criteria.yoe_min is not None or criteria.yoe_max is not None):
         flags.append("years unknown")
+    if anchor_ids:
+        if anchor_when is None:
+            flags.append("outside target company cluster")
+            score = min(score, config.CAP_OUTSIDE_COMPANY_CLUSTER)
+        elif anchor_when == "past":
+            flags.append("past target-company experience")
+            score = min(score, config.CAP_PAST_COMPANY_CLUSTER)
 
     rationale = "Matches " + ("; ".join(matched) if matched else "the search filters")
     if missed:
