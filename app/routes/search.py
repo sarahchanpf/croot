@@ -191,7 +191,8 @@ def search():
         if data is None:
             return jsonify({"error": "Add at least one criterion."}), 400
 
-        if len(raw_profiles) < config.TARGET_MERGED_POOL_SIZE and resolved.anchor_company_ids:
+        has_anchor = bool(resolved.anchor_company_ids)
+        if len(raw_profiles) < config.TARGET_MERGED_POOL_SIZE and has_anchor:
             expanded = _without_anchor(criteria)
             expanded_resolved = _resolve_anchors(expanded)
             if run_pass("expanded beyond company cluster", expanded, expanded_resolved, radius):
@@ -203,7 +204,7 @@ def search():
                 if run_pass(label, relaxed_criteria, relaxed_resolved, new_radius):
                     relaxed.append(label)
 
-        if len(raw_profiles) < config.TARGET_MERGED_POOL_SIZE:
+        if not has_anchor and len(raw_profiles) < config.BROAD_RETRIEVAL_POOL_SIZE:
             broad = _broad_retrieval_criteria(criteria)
             broad_resolved = _resolve_anchors(broad)
             if run_pass("broadened retrieval", broad, broad_resolved, config.GEO_RADIUS_BROAD_MILES):

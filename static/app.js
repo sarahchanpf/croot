@@ -467,8 +467,18 @@
   // =====================================================================
   // Search + results
   // =====================================================================
+  function clearResults() {
+    state.results = [];
+    els.results.hidden = true;
+    els.resultsTitle.textContent = "Top Matches";
+    els.relaxedNote.hidden = true;
+    els.relaxedNote.textContent = "";
+    els.cards.innerHTML = "";
+  }
+
   async function runSearch(criteriaOverride) {
     const crit = criteriaOverride || state.criteria;
+    clearResults();
     setStatus("Searching Crustdata…");
     const { ok, data } = await api("/api/search", {
       method: "POST", headers: { "Content-Type": "application/json" },

@@ -121,6 +121,28 @@ class Search(SearchRouteBase):
         self.assertEqual(body["candidates"][0]["cluster_tier"], "current")
         self.assertEqual(body["candidates"][1]["cluster_tier"], "outside")
 
+    def test_company_anchored_healthy_pool_does_not_expand(self):
+        crustdata.identify = lambda name: 10 if name == "Stripe peers" else 999
+        calls = {"n": 0}
+
+        def fake_search(payload, limit=100, sorts=None):
+            calls["n"] += 1
+            return {
+                "total_count": 80,
+                "profiles": [profile(f"p{i}", company="PayPal", cid=10) for i in range(35)],
+            }
+
+        crustdata.search = fake_search
+        r = self.client.post("/api/search", json={
+            "title": "Backend Engineer",
+            "anchor_strategy": "companies",
+            "anchor_companies": ["Stripe peers"],
+        })
+        body = r.get_json()
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(body["returned"], 35)
+        self.assertEqual(body["relaxed"], [])
+
     def test_dedups_hiring_company(self):
         crustdata.identify = lambda name: 7 if name == "HireCo" else 999
         crustdata.search = lambda payload, limit=100, sorts=None: {

@@ -153,7 +153,8 @@ def score_one(cand: dict, criteria: Criteria, anchor_ids: set | None = None) -> 
         den += W[key]
         (matched if frac >= 0.5 else missed).append(label)
 
-    slot("title", _title_fraction(criteria, cand), "title")
+    title_frac = _title_fraction(criteria, cand)
+    slot("title", title_frac, "title")
 
     skills_frac, sk_matched, sk_missed = _skills_detail(criteria, cand)
     if skills_frac is not None:
@@ -205,6 +206,8 @@ def score_one(cand: dict, criteria: Criteria, anchor_ids: set | None = None) -> 
     if anchor_ids:
         if anchor_when == "current":
             cluster_tier = "current"
+            if title_frac is None or title_frac >= 0.5:
+                score = max(score, config.FLOOR_CURRENT_COMPANY_CLUSTER)
         elif anchor_when == "past":
             cluster_tier = "past"
             flags.append("past target-company experience")

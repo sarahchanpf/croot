@@ -44,8 +44,9 @@ PROFILE_TTL_SECONDS = 30 * 24 * 3600
 
 # --- Search economics ---
 SEARCH_LIMIT = 100                       # full-fat once, then compress + reuse
-TARGET_MERGED_POOL_SIZE = 75             # if below this, run expansion passes
-SEARCH_ALGO_VERSION = "multi-pass-v1"
+TARGET_MERGED_POOL_SIZE = 35             # if below this, run focused expansion
+BROAD_RETRIEVAL_POOL_SIZE = 15           # only non-anchored searches broaden below this
+SEARCH_ALGO_VERSION = "multi-pass-v2"
 GEO_RADIUS_DEFAULT_MILES = 50
 GEO_RADIUS_BROAD_MILES = 100
 BROAD_HEALTHY_TOTAL_COUNT = 8            # below this, run one relaxation pass
@@ -67,6 +68,7 @@ RUBRIC_WEIGHTS = {
 CAP_CONTRADICTS_EXCLUDE = 40
 CAP_DISQUALIFIER = 60
 CAP_DATA_GAP = 70
+FLOOR_CURRENT_COMPANY_CLUSTER = 65
 
 # --- Uploads ---
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024       # under Vercel's 4.5 MB cap

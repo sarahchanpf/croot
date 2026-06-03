@@ -148,6 +148,31 @@ class Scoring(unittest.TestCase):
         self.assertEqual(ranked[1]["cluster_tier"], "outside")
         self.assertIn("outside target company cluster", ranked[1]["flags"])
 
+    def test_current_cluster_candidate_with_title_fit_scores_good(self):
+        peer = compress([raw_profile(
+            person_id="peer",
+            summary="",
+            skills=[],
+            current_employers=[{
+                "name": "PayPal", "title": "Software Engineer", "company_id": 10,
+                "seniority_level": "senior", "company_industry": "Payments",
+            }],
+            past_employers=[],
+        )])[0]
+        crit = Criteria(
+            title="Backend Engineer",
+            must_have_skills=["Go", "Kubernetes"],
+            domain_signals=["fintech"],
+            seniority="senior",
+            yoe_min=5,
+            yoe_max=10,
+            location="New York",
+            tenure_floor_months=None,
+        )
+        scored = score_one(peer, crit, anchor_ids={10})
+        self.assertGreaterEqual(scored["score"], 60)
+        self.assertEqual(scored["cluster_tier"], "current")
+
     def test_anchor_only_search_gets_neutral_score(self):
         crit = Criteria(anchor_strategy="companies", anchor_companies=["Stripe"],
                         tenure_floor_months=None)
