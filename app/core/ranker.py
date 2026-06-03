@@ -195,26 +195,29 @@ def score_one(cand: dict, criteria: Criteria, anchor_ids: set | None = None) -> 
 
     score = round(100 * num / den) if den > 0 else NEUTRAL_SCORE
 
-    # Caps.
+    # Hard caps still affect raw fit score; company tiers affect sort order.
     if cand.get("data_gap"):
         flags.append("incomplete profile")
         score = min(score, config.CAP_DATA_GAP)
     if cand.get("yoe") is None and (criteria.yoe_min is not None or criteria.yoe_max is not None):
         flags.append("years unknown")
+    cluster_tier = None
     if anchor_ids:
-        if anchor_when is None:
-            flags.append("outside target company cluster")
-            score = min(score, config.CAP_OUTSIDE_COMPANY_CLUSTER)
+        if anchor_when == "current":
+            cluster_tier = "current"
         elif anchor_when == "past":
+            cluster_tier = "past"
             flags.append("past target-company experience")
-            score = min(score, config.CAP_PAST_COMPANY_CLUSTER)
+        else:
+            cluster_tier = "outside"
+            flags.append("outside target company cluster")
 
     rationale = "Matches " + ("; ".join(matched) if matched else "the search filters")
     if missed:
         rationale += ". Misses " + "; ".join(missed)
     rationale += "."
 
-    return {"score": score, "rationale": rationale, "flags": flags,
+    return {"score": score, "rationale": rationale, "flags": flags, "cluster_tier": cluster_tier,
             "matched": matched, "missed": missed}
 
 
@@ -225,7 +228,7 @@ def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | No
     Same-employer dedup handles stale DB rows where the candidate already moved
     to the hiring company. title_excludes is the local post-filter standing in
     for Crustdata's missing substring-negation operator. anchor_company_ids
-    enables the cluster-pedigree slot (current peer-company employees rank up).
+    enables company-tier sorting before the raw fit score.
     """
     excludes = [t.strip().lower() for t in criteria.title_excludes if t and t.strip()]
     anchor_ids = set(anchor_company_ids or [])
@@ -237,7 +240,15 @@ def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | No
         if excludes and any(x in current_title for x in excludes):
             continue
         out.append({**cand, **score_one(cand, criteria, anchor_ids=anchor_ids)})
-    out.sort(key=lambda c: (-c["score"], c.get("crustdata_rank", 0)))
+    tier_order = {"current": 0, "past": 1, "outside": 2}
+    if anchor_ids:
+        out.sort(key=lambda c: (
+            tier_order.get(c.get("cluster_tier"), 2),
+            -c["score"],
+            c.get("crustdata_rank", 0),
+        ))
+    else:
+        out.sort(key=lambda c: (-c["score"], c.get("crustdata_rank", 0)))
     return out
 
 

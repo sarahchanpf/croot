@@ -107,13 +107,14 @@ class Scoring(unittest.TestCase):
         self.assertEqual(score_one(cand, crit)["score"],
                          score_one(cand, crit, anchor_ids=set())["score"])
 
-    def test_outside_cluster_candidate_is_capped_below_peer_company_candidate(self):
+    def test_company_anchor_sort_uses_tiers_before_score(self):
         peer = raw_profile(
             person_id="peer",
+            summary="",
             skills=[],
             current_employers=[{
                 "name": "PayPal", "title": "Software Engineer", "company_id": 10,
-                "seniority_level": "senior", "company_industry": "Fintech",
+                "seniority_level": "senior", "company_industry": "Payments",
             }],
             past_employers=[],
         )
@@ -142,7 +143,9 @@ class Scoring(unittest.TestCase):
             anchor_company_ids=[10],
         )
         self.assertEqual(ranked[0]["person_id"], "peer")
-        self.assertLessEqual(ranked[1]["score"], 55)
+        self.assertLess(ranked[0]["score"], ranked[1]["score"])
+        self.assertEqual(ranked[0]["cluster_tier"], "current")
+        self.assertEqual(ranked[1]["cluster_tier"], "outside")
         self.assertIn("outside target company cluster", ranked[1]["flags"])
 
     def test_anchor_only_search_gets_neutral_score(self):

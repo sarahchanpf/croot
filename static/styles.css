@@ -112,12 +112,6 @@ body {
   min-height: 78px; resize: vertical; color: #3b3f4a; background: #fff;
 }
 
-/* ---------- hybrid follow-up ---------- */
-.followup { margin-top: 18px; padding-top: 18px; border-top: 1px dashed var(--border-strong); }
-.followup-text { margin: 0 0 10px; color: var(--ink); }
-.followup-row { display: flex; gap: 10px; align-items: center; }
-.followup-row .input { flex: 1; }
-
 /* ---------- status ---------- */
 .status { text-align: center; margin: 26px 0; }
 .muted { color: var(--muted); }
