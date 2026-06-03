@@ -87,23 +87,14 @@
 
       <div id="criteria-summary-wrap" class="criteria-summary" hidden>
         <label class="field-label" for="criteria-summary">Extra terms</label>
-        <textarea id="criteria-summary" class="input criteria-summary-box" rows="3" readonly></textarea>
+        <textarea id="criteria-summary" class="input criteria-summary-box" rows="3"></textarea>
       </div>
 
       <button id="search-candidates" class="btn-primary" type="button">
         <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        Search Candidates
+        Execute Search
       </button>
 
-      <!-- Hybrid follow-up (hidden until the model asks for more) -->
-      <div id="followup" class="followup" hidden>
-        <p id="followup-text" class="followup-text"></p>
-        <div class="followup-row">
-          <input id="followup-input" class="input" type="text" placeholder="Add a detail, or just search…" />
-          <button id="followup-send" class="btn-primary sm" type="button">Send</button>
-          <button id="search-anyway" class="btn-ghost sm" type="button">Search anyway</button>
-        </div>
-      </div>
     </section>
 
     <p id="status" class="status muted">Enter a candidate description, paste a link, or upload a file above to find matching profiles.</p>

@@ -1,8 +1,9 @@
 /* Croot v2 — Candidate Finder UI.
  *
- * Hybrid intake: the form's "Search Candidates" sends describe + JD + notes to
+ * Hybrid intake: the form's "Execute Search" sends describe + JD + notes to
  * /api/chat once. If the model says ready_to_search, we search immediately;
- * otherwise we show its follow-up question (with a "Search anyway" escape).
+ * otherwise we show the extracted criteria and let the user add to Extra terms
+ * before pressing Execute Search again.
  * Advanced Search builds criteria directly from form fields (no LLM) and is the
  * fallback whenever the conversational extraction is unavailable.
  *
@@ -19,6 +20,8 @@
     jdText: "",         // extracted JD text (file/link)
     results: [],        // last ranked candidates
     accessPassword: "",
+    criteriaSummaryText: "",
+    lastParsedBriefKey: "",
   };
 
   const $ = (id) => document.getElementById(id);
@@ -38,9 +41,6 @@
     criteriaSummaryWrap: $("criteria-summary-wrap"), criteriaSummary: $("criteria-summary"),
     jdFile: $("jd-file"), jdFileName: $("jd-file-name"),
     search: $("search-candidates"), status: $("status"),
-    followup: $("followup"), followupText: $("followup-text"),
-    followupInput: $("followup-input"), followupSend: $("followup-send"),
-    searchAnyway: $("search-anyway"),
     results: $("results"), resultsTitle: $("results-title"),
     cards: $("cards"), relaxedNote: $("relaxed-note"), exportCsv: $("export-csv"),
     openAdv: $("open-advanced"), closeAdv: $("close-advanced"),
@@ -57,6 +57,33 @@
   }
   const splitList = (s) => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
   const setStatus = (msg) => { els.status.textContent = msg; els.status.hidden = false; };
+
+  function hasCriteria(c) {
+    if (!c) return false;
+    const education = c.education || {};
+    return Boolean(
+      c.title || (c.title_variants || []).length || c.location || c.location_country ||
+      (c.must_have_skills || []).length || (c.domain_signals || []).length ||
+      (c.anchor_companies || []).length || (c.anchor_industries || []).length ||
+      (education.schools || []).length || (education.majors || []).length ||
+      c.seniority || c.yoe_min != null || c.yoe_max != null
+    );
+  }
+
+  function currentBriefKey() {
+    const file = els.jdFile.files && els.jdFile.files[0];
+    return JSON.stringify({
+      describe: els.describe.value.trim(),
+      notes: els.notes.value.trim(),
+      jdLink: els.jdLink.value.trim(),
+      file: file ? `${file.name}:${file.size}` : "",
+    });
+  }
+
+  function extraTermsText() {
+    if (els.criteriaSummaryWrap.hidden) return "";
+    return els.criteriaSummary.value.trim();
+  }
 
   // =====================================================================
   // Alpha access gate
@@ -314,9 +341,11 @@
     if (!lines.length) {
       els.criteriaSummaryWrap.hidden = true;
       els.criteriaSummary.value = "";
+      state.criteriaSummaryText = "";
       return;
     }
-    els.criteriaSummary.value = lines.join("\n");
+    state.criteriaSummaryText = lines.join("\n");
+    els.criteriaSummary.value = state.criteriaSummaryText;
     els.criteriaSummaryWrap.hidden = false;
   }
 
@@ -346,9 +375,40 @@
   // =====================================================================
   // Hybrid intake flow
   // =====================================================================
+  async function executeSearch() {
+    const briefChanged = state.lastParsedBriefKey && currentBriefKey() !== state.lastParsedBriefKey;
+    if (!hasCriteria(state.criteria) || briefChanged) {
+      await startSearch();
+      return;
+    }
+
+    const extraTerms = extraTermsText();
+    if (extraTerms && extraTerms !== state.criteriaSummaryText) {
+      els.search.disabled = true;
+      try {
+        state.conversation.push({
+          role: "user",
+          content: `Update the criteria with these Extra terms, then search now:\n\n${extraTerms}`,
+        });
+        await chatTurn({ forceSearch: true });
+      } finally {
+        els.search.disabled = false;
+      }
+      return;
+    }
+
+    els.search.disabled = true;
+    try {
+      await runSearch();
+    } finally {
+      els.search.disabled = false;
+    }
+  }
+
   async function startSearch() {
     const describe = els.describe.value.trim();
     const notes = els.notes.value.trim();
+    const extraTerms = extraTermsText();
     if (!describe && !notes && !els.jdLink.value.trim() && !(els.jdFile.files && els.jdFile.files[0])) {
       setStatus("Add a description, link, or file first — or use Advanced Search.");
       return;
@@ -364,13 +424,18 @@
       return;
     }
 
-    const userMsg = [describe, notes && `Notes: ${notes}`].filter(Boolean).join("\n\n") || "(see job description)";
+    state.lastParsedBriefKey = currentBriefKey();
+    const userMsg = [
+      describe,
+      notes && `Notes: ${notes}`,
+      extraTerms && `Extra terms:\n${extraTerms}`,
+    ].filter(Boolean).join("\n\n") || "(see job description)";
     state.conversation = [{ role: "user", content: userMsg }];
     await chatTurn();
     els.search.disabled = false;
   }
 
-  async function chatTurn() {
+  async function chatTurn(options = {}) {
     setStatus("Understanding your requirements…");
     const { ok, status, data } = await api("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -392,24 +457,11 @@
     renderCriteriaSummary(state.criteria);
     state.conversation.push({ role: "assistant", content: data.reply || "" });
 
-    if (data.ready_to_search) {
-      els.followup.hidden = true;
+    if (data.ready_to_search || options.forceSearch) {
       await runSearch();
     } else {
-      // Sparse criteria — ask the follow-up (hybrid).
-      els.followupText.textContent = data.reply || "Tell me a bit more, or just search.";
-      els.followup.hidden = false;
-      els.followupInput.value = "";
-      els.followupInput.focus();
-      setStatus("A couple more details will sharpen the results.");
+      setStatus("Updated the criteria. Add more in Extra terms or press Execute Search to continue.");
     }
-  }
-
-  async function sendFollowup() {
-    const text = els.followupInput.value.trim();
-    if (!text) return;
-    state.conversation.push({ role: "user", content: text });
-    await chatTurn();
   }
 
   // =====================================================================
@@ -417,7 +469,6 @@
   // =====================================================================
   async function runSearch(criteriaOverride) {
     const crit = criteriaOverride || state.criteria;
-    els.followup.hidden = true;
     setStatus("Searching Crustdata…");
     const { ok, data } = await api("/api/search", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -530,10 +581,7 @@
     els.jdFileName.textContent = els.jdFile.files && els.jdFile.files[0]
       ? els.jdFile.files[0].name : "No file chosen";
   });
-  els.search.addEventListener("click", startSearch);
-  els.followupSend.addEventListener("click", sendFollowup);
-  els.followupInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendFollowup(); });
-  els.searchAnyway.addEventListener("click", () => runSearch());
+  els.search.addEventListener("click", executeSearch);
   els.openAdv.addEventListener("click", openModal);
   els.closeAdv.addEventListener("click", closeModal);
   els.advModal.addEventListener("click", (e) => { if (e.target === els.advModal) closeModal(); });

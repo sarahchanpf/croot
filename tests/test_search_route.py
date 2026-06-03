@@ -88,23 +88,38 @@ class Search(SearchRouteBase):
         self.assertGreater(body["candidates"][0]["score"], body["candidates"][1]["score"])
         self.assertEqual(body["relaxed"], [])
 
-    def test_thin_pool_triggers_one_relaxation(self):
+    def test_company_anchored_thin_pool_expands_and_merges(self):
+        crustdata.identify = lambda name: 10 if name == "Stripe peers" else 999
         calls = {"n": 0}
 
         def fake_search(payload, limit=100, sorts=None):
             calls["n"] += 1
             if calls["n"] == 1:
-                return {"total_count": 2, "profiles": [profile("a")]}     # thin -> relax
-            return {"total_count": 30, "profiles": [profile("a"), profile("b")]}
+                return {
+                    "total_count": 2,
+                    "profiles": [profile("a", company="PayPal", cid=10)],
+                }
+            return {
+                "total_count": 30,
+                "profiles": [
+                    profile("a", company="PayPal", cid=10),  # duplicate from pass 1
+                    profile("b", company="Salesforce", cid=99),
+                ],
+            }
 
         crustdata.search = fake_search
         r = self.client.post("/api/search", json={
-            "title": "Backend Engineer", "must_have_skills": ["Go"],
+            "title": "Backend Engineer",
+            "anchor_strategy": "companies",
+            "anchor_companies": ["Stripe peers"],
         })
         body = r.get_json()
-        self.assertEqual(calls["n"], 2)                       # searched twice
-        self.assertTrue(body["relaxed"])                      # surfaced what was loosened
-        self.assertIn("skills", body["relaxed"][0])
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(body["returned"], 2)                  # duplicate merged
+        self.assertIn("expanded beyond company cluster", body["relaxed"])
+        self.assertEqual(body["candidates"][0]["person_id"], "a")
+        self.assertEqual(body["candidates"][0]["cluster_tier"], "current")
+        self.assertEqual(body["candidates"][1]["cluster_tier"], "outside")
 
     def test_dedups_hiring_company(self):
         crustdata.identify = lambda name: 7 if name == "HireCo" else 999
