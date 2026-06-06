@@ -391,29 +391,68 @@ def score_one(cand: dict, criteria: Criteria) -> dict:
 # ======================================================================
 #
 # When the pool is thin (< config.BROAD_HEALTHY_TOTAL_COUNT) the search route
-# applies ONE relaxation, picking the single highest-leverage loosening
-# available, in this order: skills -> title variants -> geo -> education ->
-# anchor. plan_relaxation returns the mutated criteria, the geo radius to use,
-# and a user-facing label — or (None, radius, None) when nothing's left.
+# applies ONE relaxation, the single highest-leverage loosening available. Order
+# mirrors the skill's Phase 2 Step 4 list, adjusted for what v2 ACTUALLY filters
+# on (title / geo / anchor / education / yoe — NOT skills, which are scoring-only
+# here except in a skills-only search):
+#   1. drop skills      — only meaningful in a skills-only search (the build_filters
+#                         fallback); a no-op otherwise, so it's gated on that.
+#   2. broaden title    — the top over-narrower under a company anchor. Live data:
+#                         "Backend Engineer" at a fintech cluster in SF = 0 hits,
+#                         but the head-noun "Engineer" = 71. Drop title_variants
+#                         first, else reduce the title to its head noun so the
+#                         cluster stays intact (vs. dropping the anchor, which the
+#                         skill treats as the LAST resort).
+#   3. widen geo
+#   4. drop education
+#   5. drop the anchor   — last resort.
+# Returns (mutated criteria, geo radius, user-facing label) or (None, radius, None).
+
+def _head_noun(title: str) -> str:
+    """The role's head noun (last word), e.g. 'Backend Engineer' -> 'Engineer'.
+    Empty when the title is a single word (nothing broader to fall back to)."""
+    words = re.findall(r"[A-Za-z]+", title or "")
+    return words[-1] if len(words) >= 2 and len(words[-1]) >= 3 else ""
+
 
 def plan_relaxation(criteria: Criteria, current_radius: int = config.GEO_RADIUS_DEFAULT_MILES):
     c = Criteria.from_dict(criteria.to_dict())
-    if c.must_have_skills:
+
+    # 1. Skills filter only exists in a skills-only search (build_filters fallback);
+    #    elsewhere skills are scoring-only, so dropping them wouldn't change the pool.
+    skills_only = not (c.title.strip() or c.title_variants or c.location.strip()
+                       or c.location_country.strip() or c.anchor_companies
+                       or c.anchor_industries or c.education.majors or c.education.schools)
+    if skills_only and c.must_have_skills:
         c.must_have_skills = []
         return c, current_radius, "dropped must-have skills"
+
+    # 2. Broaden the title (keeps the anchor cluster intact).
     if c.title_variants:
         c.title_variants = []
         return c, current_radius, "broadened title (dropped variants)"
+    head = _head_noun(c.title)
+    if head and head.lower() != c.title.strip().lower():
+        old = c.title.strip()
+        c.title = head
+        return c, current_radius, f"broadened title ({old} → {head})"
+
+    # 3. Widen geo.
     if ((c.location.strip() or c.location_country.strip()) and not c.remote_ok
             and current_radius < config.GEO_RADIUS_BROAD_MILES):
         return c, config.GEO_RADIUS_BROAD_MILES, "widened search radius to 100mi"
+
+    # 4. Drop education.
     if c.education.majors or c.education.schools:
         c.education.majors = []
         c.education.schools = []
         return c, current_radius, "dropped education filters"
+
+    # 5. Drop the anchor (last resort).
     if c.anchor_companies or c.anchor_industries or c.anchor_strategy != "none":
         c.anchor_companies = []
         c.anchor_industries = []
         c.anchor_strategy = "none"
         return c, current_radius, "dropped the company/industry anchor"
+
     return None, current_radius, None

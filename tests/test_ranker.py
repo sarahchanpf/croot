@@ -251,12 +251,38 @@ class TitleWeighting(unittest.TestCase):
 
 
 class Relaxation(unittest.TestCase):
-    def test_drops_skills_first(self):
-        crit = Criteria(title="X", title_variants=["Y"], must_have_skills=["Go"])
+    def test_broadens_title_before_dropping_anchor(self):
+        # Under a company anchor, the title is the over-narrower — broaden it
+        # (drop variants first) and KEEP the anchor. Skills are scoring-only here
+        # so they're not the first relaxation.
+        crit = Criteria(title="Backend Engineer", title_variants=["Y"],
+                        must_have_skills=["Go"], anchor_companies=["Stripe"])
+        new, radius, label = plan_relaxation(crit)
+        self.assertEqual(new.title_variants, [])
+        self.assertEqual(new.must_have_skills, ["Go"])        # not dropped
+        self.assertEqual(new.anchor_companies, ["Stripe"])    # anchor kept
+        self.assertIn("title", label)
+
+    def test_broadens_title_to_head_noun_when_no_variants(self):
+        crit = Criteria(title="Backend Engineer", anchor_companies=["Stripe"])
+        new, radius, label = plan_relaxation(crit)
+        self.assertEqual(new.title, "Engineer")               # head noun
+        self.assertEqual(new.anchor_companies, ["Stripe"])    # anchor still kept
+        self.assertIn("Engineer", label)
+
+    def test_drops_skills_only_in_skills_only_search(self):
+        crit = Criteria(must_have_skills=["Go"])              # nothing else to search on
         new, radius, label = plan_relaxation(crit)
         self.assertEqual(new.must_have_skills, [])
-        self.assertEqual(new.title_variants, ["Y"])   # title untouched at this step
         self.assertIn("skills", label)
+
+    def test_single_word_title_does_not_head_noun(self):
+        # "Engineer" has no broader form — skip title, fall through to anchor.
+        crit = Criteria(title="Engineer", anchor_companies=["Stripe"])
+        new, radius, label = plan_relaxation(crit)
+        self.assertEqual(new.title, "Engineer")               # untouched
+        self.assertEqual(new.anchor_companies, [])            # anchor dropped instead
+        self.assertIn("anchor", label)
 
     def test_widens_geo_when_only_location_left(self):
         crit = Criteria(location="New York")
