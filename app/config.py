@@ -11,7 +11,7 @@ load_dotenv()
 # --- Credentials ---
 CRUSTDATA_API_KEY = os.environ.get("CRUSTDATA_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")  # added later; intake guards on it
-ACCESS_PASSWORD = os.environ.get("ACCESS_PASSWORD", "crootalphaV1")
+ACCESS_PASSWORD = os.environ.get("ACCESS_PASSWORD", "reCroot1")
 
 # --- Crustdata REST endpoints ---
 CRUSTDATA_SEARCH_URL = "https://api.crustdata.com/screener/persondb/search"
