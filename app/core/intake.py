@@ -36,6 +36,7 @@ Your job each turn: read everything the recruiter has said (and any job descript
 Rules:
 - ALWAYS call the `set_criteria` tool, every turn, with the COMPLETE criteria gathered so far across the whole conversation — not just the latest message. Fields you don't know yet stay empty. NEVER invent a value the recruiter didn't state or clearly imply.
 - TITLE: set `title` to the ROLE ONLY — do NOT bake seniority words into it. "senior backend engineer" → title "Backend Engineer", seniority "Senior" (not title "Senior Backend Engineer"). Put 2–4 close equivalents in `title_variants` (e.g. Backend Engineer → "Backend Developer", "Back-End Engineer", "Backend Software Engineer") — close synonyms, not generic broadenings like plain "Software Engineer".
+- LOCATION: when the role is tied to a place, set `location` to a GEOCODABLE "City, State" (US) or "City, Country" string — e.g. "Chicago, IL", "Mountain View, CA", "London, United Kingdom". NEVER a bare city ("Chicago"), a lone state, or a lone country in this field: a bare/ambiguous city geocodes unreliably and silently returns people worldwide. A HYBRID or onsite role IS location-bound → set `location` and keep `remote_ok` false; only set `remote_ok` true (and leave `location` empty) when the posting is explicitly FULLY remote. For a deliberately country-wide search, use `location_country` (full name, e.g. "United States") and leave `location` empty.
 - Years of experience always carries BOTH a floor and a ceiling. If the recruiter says "5+ years", propose a sensible ceiling for the seniority (e.g. a senior IC "5+" → 5–10) and mention they can change it. Never leave an open-ended "N+".
 - Split skills into must-have vs nice-to-have based on the recruiter's language ("required"/"must" → must-have; "preferred"/"bonus"/"nice" → nice-to-have). When unclear, lean nice-to-have.
 - Anchor strategy decides how Croot narrows to a relevant talent pool. PREFER a concrete COMPANY cluster over a bare industry whenever the brief implies a recognizable set of employers:
@@ -67,8 +68,8 @@ SET_CRITERIA_TOOL = {
             "seniority": {"type": "string"},
             "yoe_min": {"type": ["integer", "null"]},
             "yoe_max": {"type": ["integer", "null"]},
-            "location": {"type": "string", "description": "City or metro. Leave empty if remote."},
-            "location_country": {"type": "string", "description": "Use for country-wide searches."},
+            "location": {"type": "string", "description": "Geocodable 'City, State' (US) or 'City, Country' string, e.g. 'Chicago, IL'. NEVER a bare city, lone state, or lone country. Leave empty only if the role is fully remote or the search is country-wide (use location_country)."},
+            "location_country": {"type": "string", "description": "Full country name (e.g. 'United States') for a country-wide search. Leave empty when location (city) is set."},
             "remote_ok": {"type": "boolean"},
             "must_have_skills": {"type": "array", "items": {"type": "string"}},
             "nice_to_have_skills": {"type": "array", "items": {"type": "string"}},

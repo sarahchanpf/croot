@@ -112,12 +112,20 @@ def _title_conditions(criteria: Criteria) -> list:
 def _location_conditions(criteria: Criteria, geo_radius_miles: int) -> list:
     if criteria.remote_ok:
         return []  # remote-friendly role: don't pin geography
-    if criteria.location.strip():
-        return [cond(FIELD.REGION, "geo_distance", {
-            "location": criteria.location.strip(),
-            "distance": geo_radius_miles,
-            "unit": "mi",
-        })]
+    loc = criteria.location.strip()
+    if loc:
+        # geo_distance geocodes the location server-side, but a BARE city
+        # ("Chicago") geocodes unreliably and silently fails OPEN — it matched
+        # ~17M people worldwide in testing, so the geo filter became a no-op and
+        # results came back from India/Colombia. Only trust geo_distance when the
+        # string is qualified ("City, State" / "City, Country", e.g.
+        # "Chicago, IL"); for a bare city fall back to a region SUBSTRING match,
+        # which fails closed (a few correct hits, never a global dump).
+        if "," in loc:
+            return [cond(FIELD.REGION, "geo_distance", {
+                "location": loc, "distance": geo_radius_miles, "unit": "mi",
+            })]
+        return [cond(FIELD.REGION, "[.]", loc)]
     if criteria.location_country.strip():
         return [cond(FIELD.COUNTRY, "=", criteria.location_country.strip())]
     return []
