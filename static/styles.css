@@ -149,19 +149,24 @@ body {
 .contact-out { font-size: 12px; color: var(--muted); text-align: right; }
 
 /* ---------- advanced modal ---------- */
+/* Right-docked drawer: dims the page and slides a full-height panel in on the
+   right third, rather than a centered overlay. */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(24, 24, 48, 0.42);
-  display: flex; align-items: flex-start; justify-content: center; padding: 48px 20px; z-index: 50; overflow-y: auto; }
+  display: flex; align-items: stretch; justify-content: flex-end; z-index: 50; }
 /* `display: flex` above overrides the UA [hidden] rule, so re-assert it: the
-   modal must stay hidden until "Advanced Search" is clicked. */
+   drawer must stay hidden until "Advanced Search" is clicked. */
 .modal-backdrop[hidden] { display: none; }
-.modal { background: var(--card); border-radius: var(--radius); width: min(820px, 100%);
-  box-shadow: 0 20px 60px rgba(20, 20, 50, 0.25); }
-.modal-head { display: flex; align-items: center; justify-content: space-between;
+.modal { background: var(--card); width: clamp(360px, 34vw, 600px); height: 100%;
+  display: flex; flex-direction: column; border-left: 1px solid var(--border);
+  box-shadow: -16px 0 50px rgba(20, 20, 50, 0.22); animation: drawer-in .22s ease; }
+@keyframes drawer-in { from { transform: translateX(28px); opacity: .5; } to { transform: none; opacity: 1; } }
+.modal-head { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
   padding: 18px 22px; border-bottom: 1px solid var(--border); }
 .modal-head h2 { margin: 0; font-size: 17px; }
 .icon-btn { background: none; border: none; font-size: 24px; line-height: 1; cursor: pointer; color: var(--muted); }
-.modal-body { padding: 20px 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
-.modal-foot { display: flex; align-items: center; justify-content: space-between;
+.modal-body { padding: 20px 22px; display: grid; grid-template-columns: 1fr; gap: 16px 20px;
+  flex: 1; overflow-y: auto; }
+.modal-foot { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
   padding: 16px 22px; border-top: 1px solid var(--border); }
 .estimate { font-size: 13px; color: var(--muted); }
 .estimate strong { color: var(--ink); }
@@ -177,7 +182,8 @@ body {
   text-transform: uppercase; letter-spacing: .05em; margin-top: 6px; }
 
 @media (max-width: 720px) {
-  .two-col, .modal-body { grid-template-columns: 1fr; }
+  .two-col { grid-template-columns: 1fr; }
+  .modal { width: 100%; }            /* drawer goes full-width on small screens */
   .cand { grid-template-columns: 1fr; }
   .cand-side { align-items: flex-start; }
 }
