@@ -28,7 +28,6 @@ skill relaxes the skills clause first. `nice_to_have_skills` never filter.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 
 from .. import config
@@ -110,23 +109,6 @@ def _title_conditions(criteria: Criteria) -> list:
     return [clauses[0] if len(clauses) == 1 else op_or(clauses)]
 
 
-def _role_head(criteria: Criteria) -> str:
-    """The role's head noun (last word of the title), e.g. 'Backend Engineer'
-    -> 'Engineer', 'Product Manager' -> 'Manager'. Used as a loose, function-
-    level title filter under a company anchor."""
-    words = re.findall(r"[A-Za-z]+", criteria.title or "")
-    return words[-1] if words and len(words[-1]) >= 3 else ""
-
-
-def _loose_title_conditions(criteria: Criteria) -> list:
-    """Function-level title filter for anchored searches: keeps the pool to the
-    right ROLE (e.g. engineers) without requiring the exact phrase, so a 'Senior
-    Software Engineer' at a peer is included while founders/investors are not.
-    The ranker still scores the full title to rank the specific role on top."""
-    head = _role_head(criteria)
-    return [cond(FIELD.CURRENT_TITLE, "[.]", head)] if head else []
-
-
 def _location_conditions(criteria: Criteria, geo_radius_miles: int) -> list:
     if criteria.remote_ok:
         return []  # remote-friendly role: don't pin geography
@@ -188,14 +170,6 @@ def _anchor_company_ids_and_industries(criteria: Criteria, resolved: Resolved):
     company_ids = sorted(set(resolved.anchor_company_ids))
     industries = resolved.anchor_industries if resolved.anchor_industries is not None else criteria.anchor_industries
     return company_ids, _dedupe(industries, lower_key=False)
-
-
-def _has_company_anchor(criteria: Criteria, resolved: Resolved) -> bool:
-    """True when the search is anchored on a concrete set of companies — a
-    strong, precise narrower. Used to relax the title filter."""
-    company_ids, industries = _anchor_company_ids_and_industries(criteria, resolved)
-    strategy = _effective_strategy(criteria, company_ids, industries)
-    return strategy in ("companies", "both") and bool(company_ids)
 
 
 def _anchor_conditions(criteria: Criteria, resolved: Resolved) -> list:
@@ -264,18 +238,15 @@ def build_filters(
     # excludes qualified people. Must-have skills instead drive the 0-100 score
     # (search wide, rank precisely). The only exception is a skills-only search,
     # where we fall back to filtering on skills so we don't scan the whole DB.
+    # (This matches the skill: it adds the skills clause only when must-haves are
+    # a true hard requirement AND won't over-narrow, and drops it under a
+    # title + anchor — which is the common case here.)
     #
-    # TITLE under a concrete COMPANY cluster relaxes to a LOOSE, function-level
-    # filter (the role's head noun) rather than the exact phrase: the cluster +
-    # role keeps the pool relevant (engineers, not founders/investors) while not
-    # gutting it — a "Senior Software Engineer" at a peer still matches "Engineer".
-    # The ranker scores the full title so the specific role floats to the top.
-    # (Without a company anchor, title stays an exact-phrase filter.)
+    # TITLE is the full title-variants substring clause (skill Phase 2 Step 3) —
+    # the same exact-phrase filter whether or not the search is company-anchored.
+    # Broadening the title is a relaxation pass (search route), not the default.
     strong: list = []
-    if _has_company_anchor(criteria, resolved):
-        strong += _loose_title_conditions(criteria)
-    else:
-        strong += _title_conditions(criteria)
+    strong += _title_conditions(criteria)
     strong += _location_conditions(criteria, geo_radius_miles)
     strong += _anchor_conditions(criteria, resolved)
     strong += _education_conditions(criteria, resolved)

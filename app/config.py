@@ -43,10 +43,10 @@ COMPANY_ID_TTL_SECONDS = 30 * 24 * 3600
 PROFILE_TTL_SECONDS = 30 * 24 * 3600
 
 # --- Search economics ---
+# One full-fat, sorted DB search; one relaxation pass only if the pool is thin
+# (skill Phase 2 Step 4). No multi-pass merging — that diluted the pool.
 SEARCH_LIMIT = 100                       # full-fat once, then compress + reuse
-TARGET_MERGED_POOL_SIZE = 35             # if below this, run focused expansion
-BROAD_RETRIEVAL_POOL_SIZE = 15           # only non-anchored searches broaden below this
-SEARCH_ALGO_VERSION = "multi-pass-v2"
+SEARCH_ALGO_VERSION = "skill-parity-v1"
 GEO_RADIUS_DEFAULT_MILES = 50
 GEO_RADIUS_BROAD_MILES = 100
 BROAD_HEALTHY_TOTAL_COUNT = 8            # below this, run one relaxation pass

@@ -77,15 +77,23 @@ def normalize_linkedin_url(url: str) -> str:
 # ---------- search ----------
 
 def search(filters: dict, limit: int = config.SEARCH_LIMIT, sorts: list | None = None) -> dict:
-    """people_search_db. Returns the parsed response: {profiles: [...], total_count: N}.
+    """people_search_db (DB tier). Returns {profiles: [...], total_count: N}.
 
-    The default REST response already carries the fields the ranker needs
-    (skills, employers, education) — verified by v1 — so we don't pass the
-    MCP-only compact/truncate/format flags here.
+    Full-fat call, matching the skill's Phase 2 Step 4: `compact=false` so each
+    profile carries the nested fields the ranker scores on — skills, full
+    work history (current + past employers with industry), and education.
+    Without it the DB endpoint can return trimmed profiles (name / headline /
+    region / current employer only), which would starve the ranker.
+    (`truncate`/`format` are MCP-harness concepts — context-spillover cap and
+    markdown-vs-json shaping — irrelevant to a programmatic REST consumer, which
+    already receives uncapped JSON, so they're not sent.)
+
+    `sorts` makes the fetched slice deterministic and on-axis; the DB default is
+    `person_id asc`, i.e. an arbitrary slice of large pools (see sort_picker).
     """
     if not config.CRUSTDATA_API_KEY:
         raise CrustdataError("CRUSTDATA_API_KEY is not set.", 500)
-    payload: dict = {"filters": filters, "limit": limit}
+    payload: dict = {"filters": filters, "limit": limit, "compact": False}
     if sorts:
         payload["sorts"] = sorts
     try:
