@@ -52,14 +52,15 @@ class Title(unittest.TestCase):
         clause = find(c, FIELD.CURRENT_TITLE, "[.]")
         self.assertEqual(clause["value"], "Backend Engineer")
 
-    def test_title_relaxes_to_head_noun_under_company_anchor(self):
-        # A concrete company cluster anchors the pool, so title relaxes to a
-        # loose function-level filter (head noun) instead of the exact phrase.
+    def test_title_stays_full_phrase_under_company_anchor(self):
+        # Skill Phase 2 Step 3: title is the full-phrase substring filter whether
+        # or not the search is company-anchored. Broadening it is a relaxation
+        # pass, not the default — the head-noun shortcut diverged from the skill.
         crit = Criteria(title="Backend Engineer", anchor_strategy="companies",
                         anchor_companies=["Stripe"])
         c = conditions_of(build_filters(crit, Resolved(anchor_company_ids=[101, 102])))
         clause = find(c, FIELD.CURRENT_TITLE, "[.]")
-        self.assertEqual(clause["value"], "Engineer")            # head noun, not full phrase
+        self.assertEqual(clause["value"], "Backend Engineer")    # full phrase, not head noun
         self.assertTrue(any(x.get("op") == "or" for x in c))     # company anchor present
 
     def test_title_still_filters_when_only_industry_anchor(self):

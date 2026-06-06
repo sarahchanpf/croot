@@ -31,6 +31,11 @@ CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 # The dedicated cluster builder (cluster_finder) uses a stronger model — picking
 # the right peer companies benefits from Opus's broader, more precise knowledge.
 CLUSTER_MODEL = os.environ.get("CLUSTER_MODEL", "claude-opus-4-8")
+# Ranking is the skill's Phase 6 — a single Opus reasoning pass scoring each
+# candidate 0-100. Opus matches the skill; override with RANK_MODEL. When no
+# ANTHROPIC_API_KEY is set the ranker falls back to a deterministic rubric.
+RANK_MODEL = os.environ.get("RANK_MODEL", "claude-opus-4-8")
+RANK_MAX_TOKENS = 4096                    # enough for a ~25-candidate batch
 
 # --- Persistence ---
 if os.environ.get("VERCEL"):
@@ -43,16 +48,19 @@ COMPANY_ID_TTL_SECONDS = 30 * 24 * 3600
 PROFILE_TTL_SECONDS = 30 * 24 * 3600
 
 # --- Search economics ---
+# One full-fat, sorted DB search; one relaxation pass only if the pool is thin
+# (skill Phase 2 Step 4). No multi-pass merging — that diluted the pool.
 SEARCH_LIMIT = 100                       # full-fat once, then compress + reuse
-TARGET_MERGED_POOL_SIZE = 35             # if below this, run focused expansion
-BROAD_RETRIEVAL_POOL_SIZE = 15           # only non-anchored searches broaden below this
-SEARCH_ALGO_VERSION = "multi-pass-v2"
+SEARCH_ALGO_VERSION = "skill-parity-v1"
 GEO_RADIUS_DEFAULT_MILES = 50
 GEO_RADIUS_BROAD_MILES = 100
 BROAD_HEALTHY_TOTAL_COUNT = 8            # below this, run one relaxation pass
 MAX_RELAXATION_PASSES = 1
 
-# --- Ranking rubric (0-100; ported from skill Phase 6) ---
+# --- Ranking rubric (0-100; skill Phase 6 weight bands) ---
+# Used verbatim by the LLM ranker's system prompt and by the deterministic
+# fallback rubric. No cluster-pedigree slot — the skill's Phase 6 has none;
+# cluster relevance is enforced by the anchor filter and rewarded via `domain`.
 RUBRIC_WEIGHTS = {
     "title": 25,
     "skills": 25,
@@ -60,15 +68,8 @@ RUBRIC_WEIGHTS = {
     "yoe_seniority": 15,
     "location": 10,
     "bonus": 5,
-    # Cluster pedigree — only scored when the search is company-anchored. Being
-    # CURRENTLY at a target/peer company is a strong relevance signal, so people
-    # from the cluster outrank those who merely passed through it years ago.
-    "anchor": 20,
 }
-CAP_CONTRADICTS_EXCLUDE = 40
-CAP_DISQUALIFIER = 60
-CAP_DATA_GAP = 70
-FLOOR_CURRENT_COMPANY_CLUSTER = 65
+CAP_DATA_GAP = 70                        # incomplete profile caps the fit score
 
 # --- Uploads ---
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024       # under Vercel's 4.5 MB cap

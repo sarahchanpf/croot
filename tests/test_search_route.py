@@ -16,7 +16,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app as app_pkg
-from app.core import crustdata
+from app.core import crustdata, ranker
 from app.core.crustdata import CrustdataError
 
 
@@ -43,6 +43,10 @@ class SearchRouteBase(unittest.TestCase):
         }
         crustdata.identify = lambda name: 999
         crustdata.autocomplete = lambda field, query: []
+        # Force the deterministic ranker so orchestration tests don't make real
+        # Opus calls (config.load_dotenv may put ANTHROPIC_API_KEY in the env).
+        self._orig_llm_available = ranker.llm.available
+        ranker.llm.available = lambda: False
         # Disable cache so each test is isolated.
         import app.routes.search as sr
         self._sr = sr
@@ -55,6 +59,7 @@ class SearchRouteBase(unittest.TestCase):
         crustdata.search = self._orig["search"]
         crustdata.identify = self._orig["identify"]
         crustdata.autocomplete = self._orig["autocomplete"]
+        ranker.llm.available = self._orig_llm_available
         self._sr.get_cached = self._orig_get
         self._sr.put_cached = self._orig_put
 
@@ -88,40 +93,39 @@ class Search(SearchRouteBase):
         self.assertGreater(body["candidates"][0]["score"], body["candidates"][1]["score"])
         self.assertEqual(body["relaxed"], [])
 
-    def test_company_anchored_thin_pool_expands_and_merges(self):
+    def test_thin_pool_triggers_one_relaxation(self):
+        # Skill Phase 2 Step 4: total_count < 8 -> ONE relaxation, re-search, and
+        # the relaxed result REPLACES the pool (no multi-pass merging).
         crustdata.identify = lambda name: 10 if name == "Stripe peers" else 999
         calls = {"n": 0}
+        seen_sorts: list = []
 
         def fake_search(payload, limit=100, sorts=None):
             calls["n"] += 1
+            seen_sorts.append(sorts)
             if calls["n"] == 1:
-                return {
-                    "total_count": 2,
-                    "profiles": [profile("a", company="PayPal", cid=10)],
-                }
-            return {
-                "total_count": 30,
-                "profiles": [
-                    profile("a", company="PayPal", cid=10),  # duplicate from pass 1
-                    profile("b", company="Salesforce", cid=99),
-                ],
-            }
+                return {"total_count": 2, "profiles": [profile("a", company="PayPal", cid=10)]}
+            return {"total_count": 30, "profiles": [
+                profile("a", company="PayPal", cid=10),
+                profile("b", company="Salesforce", cid=99),
+            ]}
 
         crustdata.search = fake_search
         r = self.client.post("/api/search", json={
-            "title": "Backend Engineer",
+            "title": "Senior Backend Engineer",
             "anchor_strategy": "companies",
             "anchor_companies": ["Stripe peers"],
         })
         body = r.get_json()
-        self.assertEqual(calls["n"], 2)
-        self.assertEqual(body["returned"], 2)                  # duplicate merged
-        self.assertIn("expanded beyond company cluster", body["relaxed"])
-        self.assertEqual(body["candidates"][0]["person_id"], "a")
-        self.assertEqual(body["candidates"][0]["cluster_tier"], "current")
-        self.assertEqual(body["candidates"][1]["cluster_tier"], "outside")
+        self.assertEqual(calls["n"], 2)                        # one search + one relaxation
+        self.assertEqual(body["returned"], 2)                  # relaxed result replaces pool
+        # Title broadens first (keeping the anchor) — not anchor-drop.
+        self.assertEqual(body["relaxed"], ["broadened title (Senior Backend Engineer → Engineer)"])
+        # sorts are preserved through the relaxation pass (sort-recipes hard rule).
+        self.assertIsNotNone(seen_sorts[0])
+        self.assertEqual(seen_sorts[0], seen_sorts[1])
 
-    def test_company_anchored_healthy_pool_does_not_expand(self):
+    def test_healthy_pool_does_not_relax(self):
         crustdata.identify = lambda name: 10 if name == "Stripe peers" else 999
         calls = {"n": 0}
 
@@ -142,6 +146,15 @@ class Search(SearchRouteBase):
         self.assertEqual(calls["n"], 1)
         self.assertEqual(body["returned"], 35)
         self.assertEqual(body["relaxed"], [])
+
+    def test_search_passes_sorts_for_senior_role(self):
+        captured = {}
+        crustdata.search = lambda payload, limit=100, sorts=None: (
+            captured.update(sorts=sorts) or {"total_count": 40, "profiles": [profile("a")]}
+        )
+        self.client.post("/api/search", json={"title": "Staff Backend Engineer"})
+        self.assertEqual(captured["sorts"][0]["column"], "years_of_experience_raw")
+        self.assertEqual(captured["sorts"][0]["order"], "desc")
 
     def test_dedups_hiring_company(self):
         crustdata.identify = lambda name: 7 if name == "HireCo" else 999

@@ -14,9 +14,22 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core import ranker
 from app.core.criteria import Criteria
 from app.core.pool import compress
 from app.core.ranker import plan_relaxation, rank, score_one
+
+
+class _NoLLM(unittest.TestCase):
+    """Force the deterministic fallback so rank() never hits the network, even
+    if ANTHROPIC_API_KEY happens to be set in the dev environment."""
+
+    def setUp(self):
+        self._orig_available = ranker.llm.available
+        ranker.llm.available = lambda: False
+
+    def tearDown(self):
+        ranker.llm.available = self._orig_available
 
 
 def raw_profile(**over):
@@ -74,7 +87,7 @@ class Scoring(unittest.TestCase):
         crit = Criteria(must_have_skills=["Go", "Rust", "Elixir"])  # 1 of 3
         s = score_one(self.cand, crit)
         self.assertEqual(s["score"], 33)
-        self.assertTrue(any("Rust" in m for m in s["missed"]))
+        self.assertIn("Rust", s["rationale"])
 
     def test_nice_to_have_never_drags(self):
         base = Criteria(title="Backend Engineer")
@@ -93,85 +106,12 @@ class Scoring(unittest.TestCase):
         crit = Criteria(must_have_skills=["Go"])  # would be 100 without the cap
         self.assertLessEqual(score_one(gap, crit)["score"], 70)
 
-    def test_current_cluster_outranks_past_only(self):
-        # raw_profile: current company_id 10, past company_id 11.
-        cand = compress([raw_profile()])[0]
-        crit = Criteria(title="Backend Engineer", tenure_floor_months=None)
-        current = score_one(cand, crit, anchor_ids={10})["score"]   # currently at peer
-        past = score_one(cand, crit, anchor_ids={11})["score"]      # only ex-peer
-        self.assertGreater(current, past)
-
-    def test_anchor_slot_ignored_without_anchor_ids(self):
-        cand = compress([raw_profile()])[0]
-        crit = Criteria(title="Backend Engineer", tenure_floor_months=None)
-        self.assertEqual(score_one(cand, crit)["score"],
-                         score_one(cand, crit, anchor_ids=set())["score"])
-
-    def test_company_anchor_sort_uses_tiers_before_score(self):
-        peer = raw_profile(
-            person_id="peer",
-            summary="",
-            skills=[],
-            current_employers=[{
-                "name": "PayPal", "title": "Software Engineer", "company_id": 10,
-                "seniority_level": "senior", "company_industry": "Payments",
-            }],
-            past_employers=[],
-        )
-        generic = raw_profile(
-            person_id="generic",
-            skills=["Go", "Kubernetes"],
-            summary="Backend systems at fintech scale.",
-            current_employers=[{
-                "name": "Salesforce", "title": "Senior Backend Engineer", "company_id": 99,
-                "seniority_level": "senior", "company_industry": "SaaS",
-            }],
-            past_employers=[],
-        )
-        ranked = rank(
-            compress([generic, peer]),
-            Criteria(
-                title="Backend Engineer",
-                must_have_skills=["Go", "Kubernetes"],
-                domain_signals=["fintech"],
-                seniority="senior",
-                yoe_min=5,
-                yoe_max=10,
-                location="New York",
-                tenure_floor_months=None,
-            ),
-            anchor_company_ids=[10],
-        )
-        self.assertEqual(ranked[0]["person_id"], "peer")
-        self.assertLess(ranked[0]["score"], ranked[1]["score"])
-        self.assertEqual(ranked[0]["cluster_tier"], "current")
-        self.assertEqual(ranked[1]["cluster_tier"], "outside")
-        self.assertIn("outside target company cluster", ranked[1]["flags"])
-
-    def test_current_cluster_candidate_with_title_fit_scores_good(self):
-        peer = compress([raw_profile(
-            person_id="peer",
-            summary="",
-            skills=[],
-            current_employers=[{
-                "name": "PayPal", "title": "Software Engineer", "company_id": 10,
-                "seniority_level": "senior", "company_industry": "Payments",
-            }],
-            past_employers=[],
-        )])[0]
-        crit = Criteria(
-            title="Backend Engineer",
-            must_have_skills=["Go", "Kubernetes"],
-            domain_signals=["fintech"],
-            seniority="senior",
-            yoe_min=5,
-            yoe_max=10,
-            location="New York",
-            tenure_floor_months=None,
-        )
-        scored = score_one(peer, crit, anchor_ids={10})
-        self.assertGreaterEqual(scored["score"], 60)
-        self.assertEqual(scored["cluster_tier"], "current")
+    def test_no_cluster_tier_key_emitted(self):
+        # The cluster-pedigree slot / tier are gone (skill parity): score_one
+        # judges fit only, and never takes anchor ids.
+        s = score_one(self.cand, Criteria(title="Backend Engineer", tenure_floor_months=None))
+        self.assertNotIn("cluster_tier", s)
+        self.assertEqual(set(s), {"score", "rationale", "flags"})
 
     def test_anchor_only_search_gets_neutral_score(self):
         crit = Criteria(anchor_strategy="companies", anchor_companies=["Stripe"],
@@ -179,7 +119,35 @@ class Scoring(unittest.TestCase):
         self.assertEqual(score_one(self.cand, crit)["score"], 70)
 
 
-class RankFiltering(unittest.TestCase):
+class RankOrdering(_NoLLM):
+    def test_sorts_purely_by_fit_no_tier_override(self):
+        # A high-fit candidate OUTSIDE the anchor cluster now ranks ABOVE a
+        # low-fit candidate inside it — the opposite of the old tier-sort. The
+        # anchor cluster is enforced by the search filter, not the ranker.
+        peer = raw_profile(                               # in-cluster, weak fit
+            person_id="peer", summary="", skills=[],
+            current_employers=[{"name": "PayPal", "title": "Office Manager",
+                                "company_id": 10, "seniority_level": "senior"}],
+            past_employers=[],
+        )
+        strong = raw_profile(                             # out-of-cluster, strong fit
+            person_id="strong", skills=["Go", "Kubernetes"],
+            summary="Backend systems at fintech scale.",
+            current_employers=[{"name": "Salesforce", "title": "Senior Backend Engineer",
+                                "company_id": 99, "seniority_level": "senior",
+                                "company_industry": "Fintech"}],
+            past_employers=[],
+        )
+        ranked = rank(compress([peer, strong]), Criteria(
+            title="Backend Engineer", must_have_skills=["Go", "Kubernetes"],
+            domain_signals=["fintech"], seniority="senior",
+            yoe_min=5, yoe_max=10, location="New York", tenure_floor_months=None,
+        ))
+        self.assertEqual(ranked[0]["person_id"], "strong")
+        self.assertGreater(ranked[0]["score"], ranked[1]["score"])
+
+
+class RankFiltering(_NoLLM):
     def test_drops_same_employer_as_hiring_company(self):
         cands = compress([raw_profile(), raw_profile(person_id="p2")])
         ranked = rank(cands, Criteria(title="Backend Engineer"), hiring_company_id=10)
@@ -199,6 +167,77 @@ class RankFiltering(unittest.TestCase):
         self.assertGreater(ranked[0]["score"], ranked[1]["score"])
 
 
+class _Block:
+    """Stand-in for an Anthropic tool_use content block."""
+    def __init__(self, scores):
+        self.type = "tool_use"
+        self.name = "score_candidates"
+        self.input = {"scores": scores}
+
+
+class _Resp:
+    def __init__(self, scores):
+        self.content = [_Block(scores)]
+
+
+class _FakeClient:
+    """Records the model call and returns canned per-index scores."""
+    def __init__(self, scores):
+        self._scores = scores
+        self.calls = []
+
+    @property
+    def messages(self):
+        return self
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return _Resp(self._scores)
+
+
+class LLMScoring(unittest.TestCase):
+    def setUp(self):
+        self._orig_available = ranker.llm.available
+        self._orig_client = ranker.llm.client
+        ranker.llm.available = lambda: True
+
+    def tearDown(self):
+        ranker.llm.available = self._orig_available
+        ranker.llm.client = self._orig_client
+
+    def test_uses_llm_scores_and_sorts_by_them(self):
+        fake = _FakeClient([
+            {"index": 0, "score": 42, "rationale": "weak", "flags": []},
+            {"index": 1, "score": 91, "rationale": "strong", "flags": ["star"]},
+        ])
+        ranker.llm.client = lambda: fake
+        cands = compress([raw_profile(person_id="a"), raw_profile(person_id="b")])
+        ranked = rank(cands, Criteria(title="Backend Engineer", tenure_floor_months=None))
+        self.assertEqual(fake.calls[0]["model"], ranker.config.RANK_MODEL)
+        self.assertEqual([c["person_id"] for c in ranked], ["b", "a"])  # sorted by LLM score
+        self.assertEqual(ranked[0]["score"], 91)
+        self.assertEqual(ranked[0]["rationale"], "strong")
+        self.assertEqual(ranked[0]["flags"], ["star"])
+
+    def test_missing_index_falls_back_to_deterministic(self):
+        fake = _FakeClient([{"index": 0, "score": 80, "rationale": "ok", "flags": []}])
+        ranker.llm.client = lambda: fake
+        cands = compress([raw_profile(person_id="a"), raw_profile(person_id="b")])
+        ranked = rank(cands, Criteria(must_have_skills=["Go", "Kubernetes"], tenure_floor_months=None))
+        # Both scored (one by LLM, one by deterministic fallback) — none dropped.
+        self.assertEqual(len(ranked), 2)
+        self.assertTrue(all(isinstance(c["score"], int) for c in ranked))
+
+    def test_llm_failure_falls_back_to_deterministic(self):
+        def boom():
+            raise RuntimeError("model down")
+        ranker.llm.client = boom
+        cands = compress([raw_profile(person_id="a")])
+        ranked = rank(cands, Criteria(must_have_skills=["Go", "Kubernetes"], tenure_floor_months=None))
+        self.assertEqual(len(ranked), 1)               # deterministic fallback kept it
+        self.assertGreater(ranked[0]["score"], 0)
+
+
 class TitleWeighting(unittest.TestCase):
     def test_current_title_match_scores_higher_than_past_only(self):
         cur = compress([raw_profile()])[0]  # current title "Senior Backend Engineer"
@@ -212,12 +251,38 @@ class TitleWeighting(unittest.TestCase):
 
 
 class Relaxation(unittest.TestCase):
-    def test_drops_skills_first(self):
-        crit = Criteria(title="X", title_variants=["Y"], must_have_skills=["Go"])
+    def test_broadens_title_before_dropping_anchor(self):
+        # Under a company anchor, the title is the over-narrower — broaden it
+        # (drop variants first) and KEEP the anchor. Skills are scoring-only here
+        # so they're not the first relaxation.
+        crit = Criteria(title="Backend Engineer", title_variants=["Y"],
+                        must_have_skills=["Go"], anchor_companies=["Stripe"])
+        new, radius, label = plan_relaxation(crit)
+        self.assertEqual(new.title_variants, [])
+        self.assertEqual(new.must_have_skills, ["Go"])        # not dropped
+        self.assertEqual(new.anchor_companies, ["Stripe"])    # anchor kept
+        self.assertIn("title", label)
+
+    def test_broadens_title_to_head_noun_when_no_variants(self):
+        crit = Criteria(title="Backend Engineer", anchor_companies=["Stripe"])
+        new, radius, label = plan_relaxation(crit)
+        self.assertEqual(new.title, "Engineer")               # head noun
+        self.assertEqual(new.anchor_companies, ["Stripe"])    # anchor still kept
+        self.assertIn("Engineer", label)
+
+    def test_drops_skills_only_in_skills_only_search(self):
+        crit = Criteria(must_have_skills=["Go"])              # nothing else to search on
         new, radius, label = plan_relaxation(crit)
         self.assertEqual(new.must_have_skills, [])
-        self.assertEqual(new.title_variants, ["Y"])   # title untouched at this step
         self.assertIn("skills", label)
+
+    def test_single_word_title_does_not_head_noun(self):
+        # "Engineer" has no broader form — skip title, fall through to anchor.
+        crit = Criteria(title="Engineer", anchor_companies=["Stripe"])
+        new, radius, label = plan_relaxation(crit)
+        self.assertEqual(new.title, "Engineer")               # untouched
+        self.assertEqual(new.anchor_companies, [])            # anchor dropped instead
+        self.assertIn("anchor", label)
 
     def test_widens_geo_when_only_location_left(self):
         crit = Criteria(location="New York")
