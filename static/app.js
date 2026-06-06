@@ -44,9 +44,14 @@
     results: $("results"), resultsTitle: $("results-title"),
     cards: $("cards"), relaxedNote: $("relaxed-note"), exportCsv: $("export-csv"),
     openAdv: $("open-advanced"), closeAdv: $("close-advanced"),
+    resetSearch: $("reset-search"),
     advModal: $("advanced-modal"), advFields: $("adv-fields"),
     estimate: $("estimate-count"), applyFilters: $("apply-filters"),
   };
+
+  // The intake card's resting status line (mirrors templates/index.html).
+  const INITIAL_STATUS =
+    "Enter a candidate description, paste a link, or upload a file above to find matching profiles.";
 
   // ---- tiny helpers ----
   async function api(path, opts) {
@@ -476,6 +481,28 @@
     els.cards.innerHTML = "";
   }
 
+  // Wipe everything back to a blank slate — inputs, criteria, conversation, and
+  // results — so the user can start a fresh search.
+  function resetSearch() {
+    state.conversation = [];
+    state.criteria = {};
+    state.jdText = "";
+    state.criteriaSummaryText = "";
+    state.lastParsedBriefKey = "";
+
+    els.describe.value = "";
+    els.notes.value = "";
+    els.jdLink.value = "";
+    els.jdFile.value = "";
+    els.jdFileName.textContent = "No file chosen";
+
+    renderCriteriaSummary({});   // clears + hides the Extra terms box
+    clearResults();              // hides the results section
+    closeModal();                // in case Advanced Search was open
+    setStatus(INITIAL_STATUS);
+    els.describe.focus();
+  }
+
   async function runSearch(criteriaOverride) {
     const crit = criteriaOverride || state.criteria;
     clearResults();
@@ -592,6 +619,7 @@
       ? els.jdFile.files[0].name : "No file chosen";
   });
   els.search.addEventListener("click", executeSearch);
+  els.resetSearch.addEventListener("click", resetSearch);
   els.openAdv.addEventListener("click", openModal);
   els.closeAdv.addEventListener("click", closeModal);
   els.advModal.addEventListener("click", (e) => { if (e.target === els.advModal) closeModal(); });

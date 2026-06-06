@@ -57,6 +57,7 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 28px; background: #fbfbfe; border-bottom: 1px solid var(--border);
 }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark { width: 24px; height: 24px; color: var(--primary); }
 .brand-name { font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
