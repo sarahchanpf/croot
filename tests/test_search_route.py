@@ -16,7 +16,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app as app_pkg
-from app.core import crustdata
+from app.core import crustdata, ranker
 from app.core.crustdata import CrustdataError
 
 
@@ -43,6 +43,10 @@ class SearchRouteBase(unittest.TestCase):
         }
         crustdata.identify = lambda name: 999
         crustdata.autocomplete = lambda field, query: []
+        # Force the deterministic ranker so orchestration tests don't make real
+        # Opus calls (config.load_dotenv may put ANTHROPIC_API_KEY in the env).
+        self._orig_llm_available = ranker.llm.available
+        ranker.llm.available = lambda: False
         # Disable cache so each test is isolated.
         import app.routes.search as sr
         self._sr = sr
@@ -55,6 +59,7 @@ class SearchRouteBase(unittest.TestCase):
         crustdata.search = self._orig["search"]
         crustdata.identify = self._orig["identify"]
         crustdata.autocomplete = self._orig["autocomplete"]
+        ranker.llm.available = self._orig_llm_available
         self._sr.get_cached = self._orig_get
         self._sr.put_cached = self._orig_put
 
