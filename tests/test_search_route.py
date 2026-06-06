@@ -120,7 +120,7 @@ class Search(SearchRouteBase):
         self.assertEqual(calls["n"], 2)                        # one search + one relaxation
         self.assertEqual(body["returned"], 2)                  # relaxed result replaces pool
         # Title broadens first (keeping the anchor) — not anchor-drop.
-        self.assertEqual(body["relaxed"], ["broadened title (Senior Backend Engineer → Engineer)"])
+        self.assertEqual(body["relaxed"], ["broadened title to role (Engineer)"])
         # sorts are preserved through the relaxation pass (sort-recipes hard rule).
         self.assertIsNotNone(seen_sorts[0])
         self.assertEqual(seen_sorts[0], seen_sorts[1])

@@ -270,6 +270,18 @@ class Relaxation(unittest.TestCase):
         self.assertEqual(new.anchor_companies, ["Stripe"])    # anchor still kept
         self.assertIn("Engineer", label)
 
+    def test_multi_variant_title_reduces_to_cores_not_dropped(self):
+        # Regression: dropping variants NARROWS the title OR (removes alternatives)
+        # and made thin pools thinner. Broadening must reduce every form to its
+        # role core so every prior match still matches.
+        crit = Criteria(title="Solutions Architect",
+                        title_variants=["Solutions Engineer", "Sales Engineer"],
+                        anchor_companies=["Stripe"])
+        new, radius, label = plan_relaxation(crit)
+        cores = {new.title.lower(), *(v.lower() for v in new.title_variants)}
+        self.assertEqual(cores, {"architect", "engineer"})    # deduped cores, not dropped
+        self.assertEqual(new.anchor_companies, ["Stripe"])    # anchor kept
+
     def test_drops_skills_only_in_skills_only_search(self):
         crit = Criteria(must_have_skills=["Go"])              # nothing else to search on
         new, radius, label = plan_relaxation(crit)

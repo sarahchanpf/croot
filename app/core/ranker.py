@@ -408,11 +408,11 @@ def score_one(cand: dict, criteria: Criteria) -> dict:
 #   5. drop the anchor   — last resort.
 # Returns (mutated criteria, geo radius, user-facing label) or (None, radius, None).
 
-def _head_noun(title: str) -> str:
-    """The role's head noun (last word), e.g. 'Backend Engineer' -> 'Engineer'.
-    Empty when the title is a single word (nothing broader to fall back to)."""
+def _role_core(title: str) -> str:
+    """The role's core noun (last word), e.g. 'Solutions Architect' -> 'Architect',
+    'Backend Engineer' -> 'Engineer'. '' for an empty / too-short title."""
     words = re.findall(r"[A-Za-z]+", title or "")
-    return words[-1] if len(words) >= 2 and len(words[-1]) >= 3 else ""
+    return words[-1] if words and len(words[-1]) >= 3 else ""
 
 
 def plan_relaxation(criteria: Criteria, current_radius: int = config.GEO_RADIUS_DEFAULT_MILES):
@@ -427,15 +427,24 @@ def plan_relaxation(criteria: Criteria, current_radius: int = config.GEO_RADIUS_
         c.must_have_skills = []
         return c, current_radius, "dropped must-have skills"
 
-    # 2. Broaden the title (keeps the anchor cluster intact).
-    if c.title_variants:
-        c.title_variants = []
-        return c, current_radius, "broadened title (dropped variants)"
-    head = _head_noun(c.title)
-    if head and head.lower() != c.title.strip().lower():
-        old = c.title.strip()
-        c.title = head
-        return c, current_radius, f"broadened title ({old} → {head})"
+    # 2. Broaden the title — reduce every title form (base + variants) to its role
+    #    core (head noun). This is strictly BROADER than the exact phrases (every
+    #    prior match still matches, plus more) and keeps the anchor cluster intact.
+    #    NB: simply dropping the variants would NARROW the title OR, not broaden it
+    #    (it removes alternatives), which is why a thin pool got thinner.
+    titles = [c.title, *c.title_variants]
+    cores: list[str] = []
+    seen_cores: set[str] = set()
+    for t in titles:
+        core = _role_core(t)
+        if core and core.lower() not in seen_cores:
+            seen_cores.add(core.lower())
+            cores.append(core)
+    current_titles = {t.strip().lower() for t in titles if t.strip()}
+    if cores and {core.lower() for core in cores} != current_titles:
+        c.title = cores[0]
+        c.title_variants = cores[1:]
+        return c, current_radius, f"broadened title to role ({', '.join(cores)})"
 
     # 3. Widen geo.
     if ((c.location.strip() or c.location_country.strip()) and not c.remote_ok

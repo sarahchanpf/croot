@@ -79,10 +79,18 @@ class Title(unittest.TestCase):
 
 
 class Location(unittest.TestCase):
-    def test_city_uses_geo_distance_with_radius(self):
-        c = conditions_of(build_filters(Criteria(location="New York"), geo_radius_miles=100))
+    def test_qualified_city_uses_geo_distance_with_radius(self):
+        # A geocodable "City, State" string -> geo_distance (metro radius).
+        c = conditions_of(build_filters(Criteria(location="New York, NY"), geo_radius_miles=100))
         clause = find(c, FIELD.REGION, "geo_distance")
-        self.assertEqual(clause["value"], {"location": "New York", "distance": 100, "unit": "mi"})
+        self.assertEqual(clause["value"], {"location": "New York, NY", "distance": 100, "unit": "mi"})
+
+    def test_bare_city_uses_substring_not_geo(self):
+        # A bare city geocodes unreliably and silently fails OPEN (global dump),
+        # so fall back to a region substring match, which fails closed.
+        c = conditions_of(build_filters(Criteria(location="Chicago")))
+        self.assertIsNone(find(c, FIELD.REGION, "geo_distance"))
+        self.assertEqual(find(c, FIELD.REGION, "[.]")["value"], "Chicago")
 
     def test_country_uses_exact(self):
         c = conditions_of(build_filters(Criteria(location_country="Canada")))
