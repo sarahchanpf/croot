@@ -8,14 +8,33 @@ import re
 import time
 from contextlib import closing
 
+import requests
 from flask import Blueprint, jsonify, request, session
 
-from ..config import ACCESS_PASSWORD, FREE_SEARCH_LIMIT
+from ..config import ACCESS_PASSWORD, FREE_SEARCH_LIMIT, SIGNUP_WEBHOOK_URL
 from ..db import add_to_waitlist, db, get_search_count, is_waitlisted
 
 bp = Blueprint("access", __name__)
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _notify_signup(event: str, name: str, email: str) -> None:
+    """Best-effort: mirror a signup to the durable webhook (a Google Apps Script
+    web app that appends to a Sheet) so names/emails survive Vercel's ephemeral
+    /tmp. Never raises — a webhook hiccup must not break the signup."""
+    if not SIGNUP_WEBHOOK_URL:
+        return
+    try:
+        requests.post(SIGNUP_WEBHOOK_URL, json={
+            "event": event,
+            "name": name,
+            "email": email,
+            "ts": int(time.time()),
+            "user_agent": (request.headers.get("User-Agent") or "")[:300],
+        }, timeout=5)
+    except Exception:
+        pass
 
 
 def _usage_payload(searches_used: int) -> dict:
@@ -75,6 +94,8 @@ def access():
     except Exception as exc:
         return jsonify({"error": f"Could not store access details: {exc}"}), 500
 
+    _notify_signup("access", name, email)
+
     previous_user = session.get("access_user") or {}
     session_count = int(session.get("searches_used", 0)) if previous_user.get("email") == email else 0
     searches_used = max(session_count, get_search_count(email))
@@ -101,5 +122,6 @@ def waitlist():
         add_to_waitlist(user.get("name") or "", user["email"])
     except Exception as exc:
         return jsonify({"error": f"Could not join the waitlist: {exc}"}), 500
+    _notify_signup("waitlist", user.get("name") or "", user["email"])
     session["joined_waitlist"] = True
     return jsonify({"ok": True, "joined_waitlist": True})

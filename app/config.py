@@ -49,6 +49,11 @@ COMPANY_ID_TTL_SECONDS = 30 * 24 * 3600
 PROFILE_TTL_SECONDS = 30 * 24 * 3600
 FREE_SEARCH_LIMIT = 5
 
+# Durable signup capture. Each access/waitlist signup is POSTed here so the
+# names/emails survive Vercel's ephemeral /tmp (which doesn't persist). Point it
+# at a Google Apps Script web app that appends a row to a Sheet. Empty = disabled.
+SIGNUP_WEBHOOK_URL = os.environ.get("SIGNUP_WEBHOOK_URL", "")
+
 # --- Search economics ---
 # One full-fat, sorted DB search; one relaxation pass only if the pool is thin
 # (skill Phase 2 Step 4). No multi-pass merging — that diluted the pool.
