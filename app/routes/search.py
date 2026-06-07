@@ -16,16 +16,51 @@ even when the filter was relaxed to find them — so the relaxed clauses show up
 as misses in the rationale and the `relaxed` list tells the UI what we loosened.
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
 from .. import config
 from ..core import crustdata, pool, ranker, sort_picker
 from ..core.criteria import Criteria
 from ..core.crustdata import CrustdataError
 from ..core.filters import Resolved, build_filters
-from ..db import cache_key_for, get_cached, put_cached
+from ..db import (
+    cache_key_for,
+    get_cached,
+    get_search_count,
+    increment_search_count,
+    put_cached,
+)
 
 bp = Blueprint("search", __name__)
+
+
+def _usage_payload(searches_used: int) -> dict:
+    used = max(0, int(searches_used))
+    return {
+        "search_limit": config.FREE_SEARCH_LIMIT,
+        "searches_used": used,
+        "searches_remaining": max(0, config.FREE_SEARCH_LIMIT - used),
+        "limit_reached": used >= config.FREE_SEARCH_LIMIT,
+    }
+
+
+def _current_user_usage():
+    user = session.get("access_user")
+    if not user or not user.get("email"):
+        return None, 0
+    persisted = get_search_count(user["email"])
+    used = max(int(session.get("searches_used", 0)), persisted)
+    session["searches_used"] = used
+    return user, used
+
+
+def _record_successful_search(user: dict, current_count: int) -> dict:
+    try:
+        updated = increment_search_count(user["email"], minimum_count=current_count)
+    except Exception:
+        updated = current_count + 1
+    session["searches_used"] = updated
+    return _usage_payload(updated)
 
 
 def _resolve_anchors(criteria: Criteria) -> Resolved:
@@ -92,6 +127,16 @@ def preview():
 
 @bp.route("/api/search", methods=["POST"])
 def search():
+    user, searches_used = _current_user_usage()
+    if user is None:
+        return jsonify({"error": "Sign in again to search.", "reauthenticate": True}), 401
+    if searches_used >= config.FREE_SEARCH_LIMIT:
+        return jsonify({
+            "error": "You have used all 5 free searches. Join the waitlist to keep in touch.",
+            "waitlist_required": True,
+            **_usage_payload(searches_used),
+        }), 429
+
     body = request.get_json(force=True, silent=True) or {}
     criteria = Criteria.from_dict(body)
     if criteria.is_empty():
@@ -117,7 +162,8 @@ def search():
     })
     cached = get_cached(cache_key)
     if cached is not None:
-        return jsonify({**cached, "from_cache": True})
+        usage = _record_successful_search(user, searches_used)
+        return jsonify({**cached, "from_cache": True, **usage})
 
     relaxed: list[str] = []
     try:
@@ -150,4 +196,5 @@ def search():
         "criteria": criteria.to_dict(),
     }
     put_cached(cache_key, {"criteria": criteria.to_dict(), "limit": limit}, result, _summarize(criteria))
-    return jsonify(result)
+    usage = _record_successful_search(user, searches_used)
+    return jsonify({**result, **usage})

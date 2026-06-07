@@ -22,6 +22,10 @@
     accessPassword: "",
     criteriaSummaryText: "",
     lastParsedBriefKey: "",
+    searchLimit: 5,
+    searchesUsed: 0,
+    searchesRemaining: 5,
+    joinedWaitlist: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -41,6 +45,8 @@
     criteriaSummaryWrap: $("criteria-summary-wrap"), criteriaSummary: $("criteria-summary"),
     jdFile: $("jd-file"), jdFileName: $("jd-file-name"),
     search: $("search-candidates"), status: $("status"),
+    searchLimitTitle: $("search-limit-title"), searchLimitDetail: $("search-limit-detail"),
+    joinWaitlist: $("join-waitlist"),
     results: $("results"), resultsTitle: $("results-title"),
     cards: $("cards"), relaxedNote: $("relaxed-note"), exportCsv: $("export-csv"),
     openAdv: $("open-advanced"), closeAdv: $("close-advanced"),
@@ -101,7 +107,39 @@
   // =====================================================================
   // Alpha access gate
   // =====================================================================
-  const ACCESS_KEY = "croot.alpha.access";
+  const ACCESS_KEY = "croot.alpha.access.v2";
+
+  function syncQuotaControls() {
+    const exhausted = state.searchesRemaining <= 0;
+    els.search.disabled = exhausted;
+    els.applyFilters.disabled = exhausted;
+  }
+
+  function updateUsage(data = {}) {
+    if (Number.isFinite(data.search_limit)) state.searchLimit = data.search_limit;
+    if (Number.isFinite(data.searches_used)) state.searchesUsed = data.searches_used;
+    if (Number.isFinite(data.searches_remaining)) state.searchesRemaining = data.searches_remaining;
+    if (Object.prototype.hasOwnProperty.call(data, "joined_waitlist")) {
+      state.joinedWaitlist = Boolean(data.joined_waitlist);
+    }
+
+    if (state.joinedWaitlist) {
+      els.searchLimitTitle.textContent = "You're on the waitlist";
+      els.searchLimitDetail.textContent = "We'll follow up using the email you provided.";
+      els.joinWaitlist.hidden = true;
+    } else if (state.searchesRemaining <= 0) {
+      els.searchLimitTitle.textContent = `You've used your ${state.searchLimit} free searches`;
+      els.searchLimitDetail.textContent = "Join the waitlist to hear when more access opens.";
+      els.joinWaitlist.hidden = false;
+    } else {
+      els.searchLimitTitle.textContent =
+        `Try ${state.searchLimit} free searches and then join the waitlist`;
+      els.searchLimitDetail.textContent =
+        `${state.searchesRemaining} ${state.searchesRemaining === 1 ? "search" : "searches"} remaining`;
+      els.joinWaitlist.hidden = true;
+    }
+    syncQuotaControls();
+  }
 
   function showApp() {
     if (els.accessGate) els.accessGate.hidden = true;
@@ -111,6 +149,8 @@
   function showGate() {
     if (els.accessGate) els.accessGate.hidden = false;
     els.appShell.forEach((el) => { el.hidden = true; });
+    els.accessPasswordForm.hidden = false;
+    els.accessProfileForm.hidden = true;
     setTimeout(() => {
       const target = els.accessProfileForm.hidden ? els.accessPassword : els.accessName;
       if (target) target.focus();
@@ -121,8 +161,26 @@
     if (el) el.textContent = msg || "";
   }
 
-  if (localStorage.getItem(ACCESS_KEY)) showApp();
-  else showGate();
+  async function restoreAccess() {
+    if (!localStorage.getItem(ACCESS_KEY)) {
+      showGate();
+      return;
+    }
+    try {
+      const result = await api("/api/access/status");
+      if (result.ok && result.data.authenticated) {
+        updateUsage(result.data);
+        showApp();
+        return;
+      }
+    } catch (err) {
+      // Fall through to the gate when the saved session cannot be verified.
+    }
+    localStorage.removeItem(ACCESS_KEY);
+    showGate();
+  }
+
+  restoreAccess();
 
   async function submitAccessPassword(e) {
     e.preventDefault();
@@ -182,8 +240,24 @@
       return;
     }
     localStorage.setItem(ACCESS_KEY, JSON.stringify({ name, email, at: Date.now() }));
+    updateUsage(result.data);
     state.accessPassword = "";
     showApp();
+  }
+
+  async function joinWaitlist() {
+    els.joinWaitlist.disabled = true;
+    const result = await api("/api/access/waitlist", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    els.joinWaitlist.disabled = false;
+    if (!result.ok) {
+      setStatus(result.data.error || "Could not join the waitlist.");
+      return;
+    }
+    updateUsage(result.data);
+    setStatus("You're on the waitlist. We'll follow up by email.");
   }
 
   // =====================================================================
@@ -389,6 +463,10 @@
   // Hybrid intake flow
   // =====================================================================
   async function executeSearch() {
+    if (state.searchesRemaining <= 0) {
+      setStatus("You've used all 5 free searches. Join the waitlist to continue.");
+      return;
+    }
     const briefChanged = state.lastParsedBriefKey && currentBriefKey() !== state.lastParsedBriefKey;
     if (!hasCriteria(state.criteria) || briefChanged) {
       await startSearch();
@@ -405,7 +483,7 @@
         });
         await chatTurn({ forceSearch: true });
       } finally {
-        els.search.disabled = false;
+        syncQuotaControls();
       }
       return;
     }
@@ -414,7 +492,7 @@
     try {
       await runSearch();
     } finally {
-      els.search.disabled = false;
+      syncQuotaControls();
     }
   }
 
@@ -433,7 +511,7 @@
       state.jdText = await extractJd();
     } catch (e) {
       setStatus(e.message);
-      els.search.disabled = false;
+      syncQuotaControls();
       return;
     }
 
@@ -445,7 +523,7 @@
     ].filter(Boolean).join("\n\n") || "(see job description)";
     state.conversation = [{ role: "user", content: userMsg }];
     await chatTurn();
-    els.search.disabled = false;
+    syncQuotaControls();
   }
 
   async function chatTurn(options = {}) {
@@ -512,6 +590,10 @@
   }
 
   async function runSearch(criteriaOverride) {
+    if (state.searchesRemaining <= 0) {
+      setStatus("You've used all 5 free searches. Join the waitlist to continue.");
+      return;
+    }
     const crit = criteriaOverride || state.criteria;
     clearResults();
     setStatus("Searching candidates…", true);
@@ -520,9 +602,16 @@
       body: JSON.stringify(crit),
     });
     if (!ok) {
+      updateUsage(data);
+      if (data.reauthenticate) {
+        localStorage.removeItem(ACCESS_KEY);
+        showGate();
+        return;
+      }
       setStatus(data.error || "Search failed.");
       return;
     }
+    updateUsage(data);
     state.results = data.candidates || [];
     renderResults(data);
   }
@@ -627,6 +716,7 @@
       ? els.jdFile.files[0].name : "No file chosen";
   });
   els.search.addEventListener("click", executeSearch);
+  els.joinWaitlist.addEventListener("click", joinWaitlist);
   els.resetSearch.addEventListener("click", resetSearch);
   els.openAdv.addEventListener("click", openModal);
   els.closeAdv.addEventListener("click", closeModal);

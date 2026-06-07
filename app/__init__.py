@@ -6,8 +6,12 @@ in `app/core/` and is deliberately framework-free (no Flask imports) so it's
 unit-testable without a request context.
 """
 
+from datetime import timedelta
+import os
+
 from flask import Flask, render_template
 
+from . import config
 from .db import init_db
 
 
@@ -16,6 +20,13 @@ def create_app() -> Flask:
         __name__,
         template_folder="../templates",
         static_folder="../static",
+    )
+    flask_app.secret_key = config.SESSION_SECRET
+    flask_app.config.update(
+        PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")),
     )
 
     try:

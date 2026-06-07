@@ -12,6 +12,7 @@ load_dotenv()
 CRUSTDATA_API_KEY = os.environ.get("CRUSTDATA_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")  # added later; intake guards on it
 ACCESS_PASSWORD = os.environ.get("ACCESS_PASSWORD", "reCroot1")
+SESSION_SECRET = os.environ.get("SESSION_SECRET", ACCESS_PASSWORD)
 
 # --- Crustdata REST endpoints ---
 CRUSTDATA_SEARCH_URL = "https://api.crustdata.com/screener/persondb/search"
@@ -46,6 +47,7 @@ else:
 CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_HOURS", "72")) * 3600
 COMPANY_ID_TTL_SECONDS = 30 * 24 * 3600
 PROFILE_TTL_SECONDS = 30 * 24 * 3600
+FREE_SEARCH_LIMIT = 5
 
 # --- Search economics ---
 # One full-fat, sorted DB search; one relaxation pass only if the pool is thin

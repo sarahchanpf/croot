@@ -52,8 +52,23 @@ class SearchRouteBase(unittest.TestCase):
         self._sr = sr
         self._orig_get = sr.get_cached
         self._orig_put = sr.put_cached
+        self._orig_usage = {
+            "get_search_count": sr.get_search_count,
+            "increment_search_count": sr.increment_search_count,
+        }
+        self.search_count = 0
         sr.get_cached = lambda key: None
         sr.put_cached = lambda *a, **k: None
+        sr.get_search_count = lambda email: self.search_count
+
+        def increment_usage(email, minimum_count=0):
+            self.search_count = max(self.search_count, minimum_count) + 1
+            return self.search_count
+
+        sr.increment_search_count = increment_usage
+        with self.client.session_transaction() as sess:
+            sess["access_user"] = {"name": "Ada Lovelace", "email": "ada@example.com"}
+            sess["searches_used"] = 0
 
     def tearDown(self):
         crustdata.search = self._orig["search"]
@@ -62,6 +77,8 @@ class SearchRouteBase(unittest.TestCase):
         ranker.llm.available = self._orig_llm_available
         self._sr.get_cached = self._orig_get
         self._sr.put_cached = self._orig_put
+        self._sr.get_search_count = self._orig_usage["get_search_count"]
+        self._sr.increment_search_count = self._orig_usage["increment_search_count"]
 
 
 class Preview(SearchRouteBase):
@@ -173,6 +190,21 @@ class Search(SearchRouteBase):
         crustdata.search = boom
         r = self.client.post("/api/search", json={"title": "X"})
         self.assertEqual(r.status_code, 429)
+
+    def test_sixth_search_is_blocked(self):
+        crustdata.search = lambda payload, limit=100, sorts=None: {
+            "total_count": 20,
+            "profiles": [profile("a")],
+        }
+        for remaining in range(4, -1, -1):
+            r = self.client.post("/api/search", json={"title": "Backend Engineer"})
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.get_json()["searches_remaining"], remaining)
+
+        blocked = self.client.post("/api/search", json={"title": "Backend Engineer"})
+        self.assertEqual(blocked.status_code, 429)
+        self.assertTrue(blocked.get_json()["waitlist_required"])
+        self.assertEqual(blocked.get_json()["searches_remaining"], 0)
 
 
 if __name__ == "__main__":

@@ -78,6 +78,79 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS search_usage (
+                email        TEXT PRIMARY KEY,
+                search_count INTEGER NOT NULL DEFAULT 0,
+                updated_at   INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS waitlist_signups (
+                email      TEXT PRIMARY KEY,
+                name       TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """
+        )
+
+
+def get_search_count(email: str) -> int:
+    """Return persisted usage, falling back to zero when storage is unavailable."""
+    try:
+        with closing(db()) as conn:
+            row = conn.execute(
+                "SELECT search_count FROM search_usage WHERE email = ?",
+                (email.strip().lower(),),
+            ).fetchone()
+    except Exception:
+        return 0
+    return int(row["search_count"]) if row else 0
+
+
+def increment_search_count(email: str, minimum_count: int = 0) -> int:
+    """Atomically increment usage without losing a higher cookie-backed count."""
+    normalized = email.strip().lower()
+    now = int(time.time())
+    with closing(db()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT search_count FROM search_usage WHERE email = ?",
+            (normalized,),
+        ).fetchone()
+        current = max(int(row["search_count"]) if row else 0, int(minimum_count))
+        updated = current + 1
+        conn.execute(
+            "INSERT OR REPLACE INTO search_usage (email, search_count, updated_at) "
+            "VALUES (?, ?, ?)",
+            (normalized, updated, now),
+        )
+        conn.commit()
+    return updated
+
+
+def add_to_waitlist(name: str, email: str) -> None:
+    with closing(db()) as conn, conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO waitlist_signups (email, name, created_at) "
+            "VALUES (?, ?, ?)",
+            (email.strip().lower(), name.strip(), int(time.time())),
+        )
+
+
+def is_waitlisted(email: str) -> bool:
+    try:
+        with closing(db()) as conn:
+            row = conn.execute(
+                "SELECT 1 FROM waitlist_signups WHERE email = ?",
+                (email.strip().lower(),),
+            ).fetchone()
+    except Exception:
+        return False
+    return row is not None
 
 
 # ---------- search cache (best-effort) ----------
