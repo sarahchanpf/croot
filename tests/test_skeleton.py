@@ -64,6 +64,10 @@ class AppBoots(unittest.TestCase):
     def test_search_guards_empty_criteria(self):
         from app import app
         client = app.test_client()
+        # /api/search now requires an authenticated user (free-search gate), so
+        # sign in via the session before checking the empty-criteria guard.
+        with client.session_transaction() as sess:
+            sess["access_user"] = {"name": "Ada Lovelace", "email": "ada@example.com"}
         r = client.post("/api/search", json={})
         self.assertEqual(r.status_code, 400)
 
