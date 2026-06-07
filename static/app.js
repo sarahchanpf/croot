@@ -61,7 +61,15 @@
     return { ok: res.ok, status: res.status, data, res };
   }
   const splitList = (s) => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
-  const setStatus = (msg) => { els.status.textContent = msg; els.status.hidden = false; };
+  // When `loading` is true, show an animated spinner beside the message so it's
+  // obvious work is in progress (search/extraction can take a few seconds).
+  const setStatus = (msg, loading = false) => {
+    els.status.classList.toggle("loading", !!loading);
+    els.status.innerHTML = loading
+      ? `<span class="spinner" aria-hidden="true"></span><span>${esc(msg)}</span>`
+      : esc(msg);
+    els.status.hidden = false;
+  };
 
   function hasCriteria(c) {
     if (!c) return false;
@@ -420,7 +428,7 @@
     }
     els.search.disabled = true;
     renderCriteriaSummary({});
-    setStatus("Reading your brief…");
+    setStatus("Reading your brief…", true);
     try {
       state.jdText = await extractJd();
     } catch (e) {
@@ -441,7 +449,7 @@
   }
 
   async function chatTurn(options = {}) {
-    setStatus("Understanding your requirements…");
+    setStatus("Understanding your requirements…", true);
     const { ok, status, data } = await api("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages: state.conversation, jd_text: state.jdText }),
@@ -506,7 +514,7 @@
   async function runSearch(criteriaOverride) {
     const crit = criteriaOverride || state.criteria;
     clearResults();
-    setStatus("Searching Crustdata…");
+    setStatus("Searching candidates…", true);
     const { ok, data } = await api("/api/search", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(crit),

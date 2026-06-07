@@ -116,6 +116,13 @@ body {
 /* ---------- status ---------- */
 .status { text-align: center; margin: 26px 0; }
 .muted { color: var(--muted); }
+/* Loading state: centered spinner + message while a search/extraction runs. */
+.status.loading { display: flex; align-items: center; justify-content: center; gap: 9px;
+  color: var(--ink); font-weight: 500; }
+.spinner { width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--primary);
+  animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- results ---------- */
 .results { margin-top: 24px; }
