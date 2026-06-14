@@ -54,10 +54,6 @@
       <span class="brand-name">croot</span>
     </div>
     <div class="topbar-actions">
-      <button id="open-saved" class="btn-ghost" type="button">
-        <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M6 4h12a1 1 0 0 1 1 1v15l-7-4-7 4V5a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>
-        Saved
-      </button>
       <button id="reset-search" class="btn-ghost" type="button">
         <svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.34-5.66" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20 4v3.5h-3.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Reset Search
@@ -123,7 +119,6 @@
         <h2 id="results-title">Top Matches</h2>
         <div class="results-actions">
           <span id="relaxed-note" class="relaxed-note" hidden></span>
-          <button id="save-search" class="btn-ghost sm" type="button">Save search</button>
           <button id="export-csv" class="btn-ghost sm" type="button">Export CSV</button>
         </div>
       </div>
@@ -146,17 +141,6 @@
           <strong id="estimate-count">—</strong></span>
         <button id="apply-filters" class="btn-primary" type="button">Apply Filters</button>
       </footer>
-    </div>
-  </div>
-
-  <!-- Saved searches drawer -->
-  <div id="saved-modal" class="modal-backdrop" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="saved-title">
-      <header class="modal-head">
-        <h2 id="saved-title">Saved searches</h2>
-        <button id="close-saved" class="icon-btn" type="button" aria-label="Close">×</button>
-      </header>
-      <div class="modal-body" id="saved-list"><!-- saved searches injected by app.js --></div>
     </div>
   </div>
 

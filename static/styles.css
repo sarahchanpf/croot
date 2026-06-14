@@ -191,17 +191,6 @@ body {
 .estimate { font-size: 13px; color: var(--muted); }
 .estimate strong { color: var(--ink); }
 
-/* ---------- saved searches ---------- */
-.saved-item { display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 12px 2px; border-bottom: 1px solid var(--border); }
-.saved-item:last-child { border-bottom: none; }
-.saved-item-main { min-width: 0; }
-.saved-item-name { font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.saved-item-q { font-size: 12px; color: var(--muted); margin-top: 2px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.saved-item-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.saved-empty { color: var(--muted); font-size: 14px; padding: 6px 2px; }
-
 .adv-field { display: flex; flex-direction: column; gap: 5px; }
 .adv-field.full { grid-column: 1 / -1; }
 .adv-field label { font-size: 12px; color: #3b3f4a; }
