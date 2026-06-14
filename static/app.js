@@ -53,6 +53,8 @@
     resetSearch: $("reset-search"),
     advModal: $("advanced-modal"), advFields: $("adv-fields"),
     estimate: $("estimate-count"), applyFilters: $("apply-filters"),
+    openSaved: $("open-saved"), closeSaved: $("close-saved"),
+    savedModal: $("saved-modal"), savedList: $("saved-list"), saveSearch: $("save-search"),
   };
 
   // The intake card's resting status line (mirrors templates/index.html).
@@ -712,6 +714,90 @@
       .replace(/"/g, "&quot;");
   }
 
+  // =====================================================================
+  // Saved searches — per-user, stored in the Sheet via the backend.
+  // =====================================================================
+  function summarize(c) {
+    c = c || {};
+    const parts = [];
+    if (c.title) parts.push(c.title);
+    if (c.seniority) parts.push(c.seniority);
+    const loc = c.remote_ok ? "Remote"
+      : (c.location || c.location_country || (c.location_region ? c.location_region.replace(/_/g, " ") : ""));
+    if (loc) parts.push("in " + loc);
+    if ((c.must_have_skills || []).length) parts.push((c.must_have_skills).join(", "));
+    if ((c.anchor_companies || []).length) parts.push("ex-" + c.anchor_companies.slice(0, 4).join(", "));
+    return parts.join(" · ") || "Untitled search";
+  }
+
+  async function saveCurrentSearch() {
+    if (!hasCriteria(state.criteria)) {
+      setStatus("Run a search first, then save it.");
+      return;
+    }
+    const suggested = state.criteria.title || summarize(state.criteria).slice(0, 60);
+    const name = (window.prompt("Name this search:", suggested) || "").trim();
+    if (!name) return;
+    const { ok, data } = await api("/api/saved-searches", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, criteria: state.criteria, query: summarize(state.criteria) }),
+    });
+    if (!ok) { setStatus(data.error || "Couldn't save the search."); return; }
+    setStatus(`Saved "${name}".`);
+  }
+
+  async function openSavedDrawer() {
+    els.savedModal.hidden = false;
+    els.savedList.innerHTML = `<p class="saved-empty">Loading…</p>`;
+    const { ok, data } = await api("/api/saved-searches");
+    if (!ok) {
+      els.savedList.innerHTML = `<p class="saved-empty">${esc(data.error || "Couldn't load saved searches.")}</p>`;
+      return;
+    }
+    renderSavedList(Array.isArray(data) ? data : []);
+  }
+  function closeSavedDrawer() { els.savedModal.hidden = true; }
+
+  function renderSavedList(items) {
+    if (!items.length) {
+      els.savedList.innerHTML = `<p class="saved-empty">No saved searches yet. Run a search and press “Save search”.</p>`;
+      return;
+    }
+    const byId = {};
+    items.forEach((it) => { byId[it.id] = it; });
+    els.savedList.innerHTML = items.map((it) => `
+      <div class="saved-item">
+        <div class="saved-item-main">
+          <div class="saved-item-name">${esc(it.name || "Untitled")}</div>
+          <div class="saved-item-q">${esc(it.query || summarize(it.criteria))}</div>
+        </div>
+        <div class="saved-item-actions">
+          <button class="btn-ghost sm" data-run="${esc(it.id)}">Run</button>
+          <button class="icon-btn" data-del="${esc(it.id)}" title="Delete" aria-label="Delete">×</button>
+        </div>
+      </div>`).join("");
+    els.savedList.querySelectorAll("[data-run]").forEach((b) => {
+      b.addEventListener("click", () => runSaved(byId[b.dataset.run]));
+    });
+    els.savedList.querySelectorAll("[data-del]").forEach((b) => {
+      b.addEventListener("click", () => deleteSaved(b.dataset.del));
+    });
+  }
+
+  function runSaved(item) {
+    if (!item) return;
+    state.criteria = item.criteria || {};
+    state.conversation = [];
+    renderCriteriaSummary(state.criteria);
+    closeSavedDrawer();
+    runSearch(state.criteria);
+  }
+
+  async function deleteSaved(id) {
+    const { ok } = await api("/api/saved-searches/" + encodeURIComponent(id), { method: "DELETE" });
+    if (ok) openSavedDrawer();  // refresh the list
+  }
+
   // ---- wire up ----
   els.jdFile.addEventListener("change", () => {
     els.jdFileName.textContent = els.jdFile.files && els.jdFile.files[0]
@@ -730,6 +816,10 @@
     runSearch();
   });
   els.exportCsv.addEventListener("click", exportCsv);
+  els.saveSearch.addEventListener("click", saveCurrentSearch);
+  els.openSaved.addEventListener("click", openSavedDrawer);
+  els.closeSaved.addEventListener("click", closeSavedDrawer);
+  els.savedModal.addEventListener("click", (e) => { if (e.target === els.savedModal) closeSavedDrawer(); });
   els.accessPasswordForm.addEventListener("submit", submitAccessPassword);
   els.accessProfileForm.addEventListener("submit", submitAccessProfile);
 

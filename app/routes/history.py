@@ -1,15 +1,24 @@
-"""Search history + saved searches (named criteria a recruiter can re-run)."""
+"""Per-user saved searches (named criteria a recruiter can re-run).
+
+Stored durably in the Google Sheet via the Apps Script webhook (Vercel's /tmp is
+ephemeral), scoped to the signed-in user's email. The legacy /api/history reads
+the local search_history table (best-effort; empty on Vercel's read-only fs).
+"""
 
 import json
-import time
 from contextlib import closing
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, session
 
-from ..config import CACHE_TTL_SECONDS  # noqa: F401  (reserved for history TTL use)
 from ..db import db
+from ..notify import get_webhook, request_webhook
 
 bp = Blueprint("history", __name__)
+
+
+def _user_email() -> str:
+    user = session.get("access_user") or {}
+    return (user.get("email") or "").strip().lower()
 
 
 @bp.route("/api/history")
@@ -27,43 +36,45 @@ def history():
 
 @bp.route("/api/saved-searches", methods=["GET", "POST"])
 def saved_searches():
+    email = _user_email()
+    if not email:
+        return jsonify({"error": "Sign in to use saved searches."}), 401
+
     if request.method == "GET":
-        try:
-            with closing(db()) as conn:
-                rows = conn.execute(
-                    "SELECT id, name, criteria, created_at, last_run_at "
-                    "FROM saved_searches ORDER BY created_at DESC"
-                ).fetchall()
-            out = []
-            for r in rows:
-                d = dict(r)
-                d["criteria"] = json.loads(d["criteria"])
-                out.append(d)
-            return jsonify(out)
-        except Exception:
-            return jsonify([])
+        data = get_webhook({"action": "list_saved", "email": email})
+        items = data if isinstance(data, list) else []
+        # criteria comes back as a JSON string from the Sheet — parse for the UI.
+        for it in items:
+            if isinstance(it.get("criteria"), str):
+                try:
+                    it["criteria"] = json.loads(it["criteria"])
+                except (ValueError, TypeError):
+                    it["criteria"] = {}
+        return jsonify(items)
 
     body = request.get_json(force=True, silent=True) or {}
     name = (body.get("name") or "").strip()
     criteria = body.get("criteria")
     if not name or criteria is None:
         return jsonify({"error": "name and criteria are required."}), 400
-    try:
-        with closing(db()) as conn, conn:
-            cur = conn.execute(
-                "INSERT INTO saved_searches (name, criteria, created_at) VALUES (?, ?, ?)",
-                (name, json.dumps(criteria), int(time.time())),
-            )
-        return jsonify({"id": cur.lastrowid, "name": name}), 201
-    except Exception as exc:
-        return jsonify({"error": f"Could not save: {exc}"}), 500
+    resp = request_webhook({
+        "event": "save_search",
+        "email": email,
+        "name": name[:200],
+        "query": (body.get("query") or "")[:500],
+        "criteria": json.dumps(criteria),
+    })
+    if not resp or not resp.get("ok"):
+        return jsonify({"error": "Couldn't save the search — storage is unavailable."}), 502
+    return jsonify({"id": resp.get("id"), "name": name}), 201
 
 
-@bp.route("/api/saved-searches/<int:search_id>", methods=["DELETE"])
-def delete_saved_search(search_id: int):
-    try:
-        with closing(db()) as conn, conn:
-            conn.execute("DELETE FROM saved_searches WHERE id = ?", (search_id,))
-        return jsonify({"deleted": search_id})
-    except Exception as exc:
-        return jsonify({"error": f"Could not delete: {exc}"}), 500
+@bp.route("/api/saved-searches/<sid>", methods=["DELETE"])
+def delete_saved_search(sid: str):
+    email = _user_email()
+    if not email:
+        return jsonify({"error": "Sign in to use saved searches."}), 401
+    resp = request_webhook({"event": "delete_saved", "email": email, "id": sid})
+    if not resp or not resp.get("ok"):
+        return jsonify({"error": "Couldn't delete the saved search."}), 502
+    return jsonify({"deleted": sid})
