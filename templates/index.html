@@ -3,7 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>croot</title>
+  <title>Croot</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}" />
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}" />
+  <meta name="description" content="Croot — source candidates fast. Describe the role or paste a job description and get ranked matches." />
+  <meta property="og:title" content="Croot" />
+  <meta property="og:description" content="Source candidates fast — describe the role or paste a JD, get ranked matches." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://trycroot.ai/" />
+  <meta property="og:image" content="https://trycroot.ai/static/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Croot" />
+  <meta name="twitter:image" content="https://trycroot.ai/static/og-image.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet" />
@@ -13,11 +24,7 @@
   <section id="access-gate" class="access-gate" aria-label="Croot alpha access">
     <div class="access-card">
       <div class="brand access-brand">
-        <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
-          <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
-          <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
-        </svg>
+        <img class="brand-mark" src="{{ url_for('static', filename='croot-logo.png') }}" alt="Croot" />
         <span class="brand-name">croot</span>
       </div>
 
@@ -46,11 +53,7 @@
   <!-- Top bar -->
   <header class="topbar" data-app-shell hidden>
     <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
-        <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="2"/>
-        <circle cx="12" cy="12" r="1.4" fill="currentColor"/>
-      </svg>
+      <img class="brand-mark" src="{{ url_for('static', filename='croot-logo.png') }}" alt="Croot" />
       <span class="brand-name">croot</span>
     </div>
     <div class="topbar-actions">
