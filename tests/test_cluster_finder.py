@@ -49,6 +49,28 @@ class FindCluster(unittest.TestCase):
         self.assertEqual(self.holder["model"], config.CLUSTER_MODEL)
         self.assertEqual(self.holder["tool_choice"], {"type": "tool", "name": "set_cluster"})
 
+    def test_role_function_classification(self):
+        rf = cluster_finder.role_function
+        self.assertEqual(rf(Criteria(title="Founding Account Executive")), "gtm")
+        self.assertEqual(rf(Criteria(title="Solutions Architect")), "gtm")   # pre-sales
+        self.assertEqual(rf(Criteria(title="Senior Backend Engineer")), "technical")
+        self.assertEqual(rf(Criteria(title="Data Scientist")), "technical")
+        self.assertEqual(rf(Criteria(title="Product Manager")), "other")
+
+    def test_gtm_role_gets_sales_talent_prompt(self):
+        llm.client = lambda: fake_client(["Ramp"], self.holder)
+        cluster_finder.find_cluster(Criteria(title="Account Executive"))
+        sys_text = self.holder["system"][0]["text"]
+        self.assertIn("GO-TO-MARKET", sys_text)
+        self.assertNotIn("TECHNICAL / ENGINEERING", sys_text)
+
+    def test_technical_role_gets_subvertical_prompt(self):
+        llm.client = lambda: fake_client(["Stripe"], self.holder)
+        cluster_finder.find_cluster(Criteria(title="Backend Engineer"))
+        sys_text = self.holder["system"][0]["text"]
+        self.assertIn("SUB-VERTICAL", sys_text)
+        self.assertNotIn("GO-TO-MARKET", sys_text)
+
     def test_no_key_returns_empty(self):
         from app import config
         key = config.ANTHROPIC_API_KEY
