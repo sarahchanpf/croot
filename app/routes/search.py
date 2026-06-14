@@ -19,6 +19,7 @@ as misses in the rationale and the `relaxed` list tells the UI what we loosened.
 from flask import Blueprint, jsonify, request, session
 
 from .. import config
+from ..notify import post_event
 from ..core import crustdata, pool, ranker, sort_picker
 from ..core.criteria import Criteria
 from ..core.crustdata import CrustdataError
@@ -61,6 +62,20 @@ def _record_successful_search(user: dict, current_count: int) -> dict:
         updated = current_count + 1
     session["searches_used"] = updated
     return _usage_payload(updated)
+
+
+def _log_search(user: dict, criteria: Criteria, result: dict) -> None:
+    """Mirror a run search to the durable Sheet webhook (Searches tab). Fail-soft.
+    Captures who searched, the query summary, and how many candidates came back."""
+    post_event({
+        "event": "search",
+        "name": (user or {}).get("name", ""),
+        "email": (user or {}).get("email", ""),
+        "query": _summarize(criteria),
+        "results": result.get("returned"),
+        "total": result.get("total_count"),
+        "relaxed": ", ".join(result.get("relaxed") or []),
+    })
 
 
 def _resolve_anchors(criteria: Criteria) -> Resolved:
@@ -163,6 +178,7 @@ def search():
     cached = get_cached(cache_key)
     if cached is not None:
         usage = _record_successful_search(user, searches_used)
+        _log_search(user, criteria, cached)
         return jsonify({**cached, "from_cache": True, **usage})
 
     relaxed: list[str] = []
@@ -197,4 +213,5 @@ def search():
     }
     put_cached(cache_key, {"criteria": criteria.to_dict(), "limit": limit}, result, _summarize(criteria))
     usage = _record_successful_search(user, searches_used)
+    _log_search(user, criteria, result)
     return jsonify({**result, **usage})

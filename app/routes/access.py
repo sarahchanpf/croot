@@ -8,11 +8,11 @@ import re
 import time
 from contextlib import closing
 
-import requests
 from flask import Blueprint, jsonify, request, session
 
-from ..config import ACCESS_PASSWORD, FREE_SEARCH_LIMIT, SIGNUP_WEBHOOK_URL
+from ..config import ACCESS_PASSWORD, FREE_SEARCH_LIMIT
 from ..db import add_to_waitlist, db, get_search_count, is_waitlisted
+from ..notify import post_event
 
 bp = Blueprint("access", __name__)
 
@@ -20,21 +20,13 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _notify_signup(event: str, name: str, email: str) -> None:
-    """Best-effort: mirror a signup to the durable webhook (a Google Apps Script
-    web app that appends to a Sheet) so names/emails survive Vercel's ephemeral
-    /tmp. Never raises — a webhook hiccup must not break the signup."""
-    if not SIGNUP_WEBHOOK_URL:
-        return
-    try:
-        requests.post(SIGNUP_WEBHOOK_URL, json={
-            "event": event,
-            "name": name,
-            "email": email,
-            "ts": int(time.time()),
-            "user_agent": (request.headers.get("User-Agent") or "")[:300],
-        }, timeout=5)
-    except Exception:
-        pass
+    """Mirror a signup to the durable Sheet webhook (Signups tab). Fail-soft."""
+    post_event({
+        "event": event,
+        "name": name,
+        "email": email,
+        "user_agent": (request.headers.get("User-Agent") or "")[:300],
+    })
 
 
 def _usage_payload(searches_used: int) -> dict:
