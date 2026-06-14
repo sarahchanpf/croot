@@ -110,9 +110,10 @@ class Search(SearchRouteBase):
         self.assertGreater(body["candidates"][0]["score"], body["candidates"][1]["score"])
         self.assertEqual(body["relaxed"], [])
 
-    def test_thin_pool_triggers_one_relaxation(self):
-        # Skill Phase 2 Step 4: total_count < 8 -> ONE relaxation, re-search, and
-        # the relaxed result REPLACES the pool (no multi-pass merging).
+    def test_thin_anchored_pool_broadens_beyond_cluster(self):
+        # A company-anchored search whose pool is thin (< AUTO_BROADEN_BELOW)
+        # drops the anchor and searches the wider title+geo pool when that pool
+        # is healthy. Peer-company candidates are kept on top by the ranker.
         crustdata.identify = lambda name: 10 if name == "Stripe peers" else 999
         calls = {"n": 0}
         seen_sorts: list = []
@@ -120,27 +121,60 @@ class Search(SearchRouteBase):
         def fake_search(payload, limit=100, sorts=None):
             calls["n"] += 1
             seen_sorts.append(sorts)
-            if calls["n"] == 1:
+            if calls["n"] == 1:  # anchored pool is thin
                 return {"total_count": 2, "profiles": [profile("a", company="PayPal", cid=10)]}
-            return {"total_count": 30, "profiles": [
-                profile("a", company="PayPal", cid=10),
+            return {"total_count": 300, "profiles": [  # wide un-anchored pool
                 profile("b", company="Salesforce", cid=99),
+                profile("a", company="PayPal", cid=10),
             ]}
 
         crustdata.search = fake_search
         r = self.client.post("/api/search", json={
-            "title": "Senior Backend Engineer",
+            "title": "Account Executive",
             "anchor_strategy": "companies",
             "anchor_companies": ["Stripe peers"],
         })
         body = r.get_json()
-        self.assertEqual(calls["n"], 2)                        # one search + one relaxation
-        self.assertEqual(body["returned"], 2)                  # relaxed result replaces pool
-        # Title broadens first (keeping the anchor) — not anchor-drop.
-        self.assertEqual(body["relaxed"], ["broadened title to role (Engineer)"])
-        # sorts are preserved through the relaxation pass (sort-recipes hard rule).
-        self.assertIsNotNone(seen_sorts[0])
-        self.assertEqual(seen_sorts[0], seen_sorts[1])
+        self.assertEqual(calls["n"], 2)                        # anchored + broadened
+        self.assertEqual(body["returned"], 2)
+        self.assertEqual(body["relaxed"], ["broadened beyond the company cluster"])
+        self.assertEqual(seen_sorts[0], seen_sorts[1])         # sorts preserved
+        # Pedigree bonus floats the peer-company candidate (cid 10) above the
+        # equal-fit non-peer (cid 99).
+        self.assertEqual(body["candidates"][0]["person_id"], "a")
+
+    def test_thin_anchored_pool_keeps_tight_when_broad_also_small(self):
+        # If dropping the anchor doesn't yield a healthy pool, keep the tight
+        # cluster (and fall through to title relaxation).
+        crustdata.identify = lambda name: 10 if name == "Stripe peers" else 999
+        calls = {"n": 0}
+
+        def fake_search(payload, limit=100, sorts=None):
+            calls["n"] += 1
+            return {"total_count": 3, "profiles": [profile("a", company="PayPal", cid=10)]}
+
+        crustdata.search = fake_search
+        r = self.client.post("/api/search", json={
+            "title": "Account Executive",
+            "anchor_strategy": "companies",
+            "anchor_companies": ["Stripe peers"],
+        })
+        body = r.get_json()
+        self.assertNotIn("broadened beyond the company cluster", body["relaxed"])
+
+    def test_thin_unanchored_pool_relaxes_title(self):
+        # No anchor -> auto-broaden doesn't apply; a thin pool relaxes the title.
+        calls = {"n": 0}
+
+        def fake_search(payload, limit=100, sorts=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {"total_count": 2, "profiles": [profile("a")]}
+            return {"total_count": 30, "profiles": [profile("a"), profile("b")]}
+
+        crustdata.search = fake_search
+        r = self.client.post("/api/search", json={"title": "Senior Backend Engineer"})
+        self.assertEqual(r.get_json()["relaxed"], ["broadened title to role (Engineer)"])
 
     def test_healthy_pool_does_not_relax(self):
         crustdata.identify = lambda name: 10 if name == "Stripe peers" else 999

@@ -58,11 +58,22 @@ SIGNUP_WEBHOOK_URL = os.environ.get("SIGNUP_WEBHOOK_URL", "")
 # One full-fat, sorted DB search; one relaxation pass only if the pool is thin
 # (skill Phase 2 Step 4). No multi-pass merging — that diluted the pool.
 SEARCH_LIMIT = 100                       # full-fat once, then compress + reuse
-SEARCH_ALGO_VERSION = "skill-parity-v1"
+SEARCH_ALGO_VERSION = "adaptive-anchor-v1"
 GEO_RADIUS_DEFAULT_MILES = 50
 GEO_RADIUS_BROAD_MILES = 100
 BROAD_HEALTHY_TOTAL_COUNT = 8            # below this, run one relaxation pass
 MAX_RELAXATION_PASSES = 1
+# Adaptive anchor: a company-anchored pool below this is too narrow for the role
+# (e.g. a niche peer cluster on a high-volume sales role). When the un-anchored
+# pool (title + location + seniority) is at least this big, drop the anchor and
+# search wide — the ranker still floats cluster-pedigree candidates to the top.
+AUTO_BROADEN_BELOW = 25
+
+# Cluster-pedigree ranking bonus (added on top of the 0-100 fit score when the
+# search is company-anchored), so peers stay near the top after a broaden but a
+# clearly-better-fit non-peer can still win. Current employer counts more.
+CLUSTER_BONUS_CURRENT = 8
+CLUSTER_BONUS_PAST = 4
 
 # --- Ranking rubric (0-100; skill Phase 6 weight bands) ---
 # Used verbatim by the LLM ranker's system prompt and by the deterministic

@@ -49,14 +49,21 @@ def _contains_any(needle: str, haystacks) -> bool:
 # Public entry point
 # ======================================================================
 
-def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | None = None) -> list[dict]:
+def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | None = None,
+         anchor_company_ids: list[int] | None = None) -> list[dict]:
     """Drop same-employer + title_excludes rows, score 0-100, sort desc.
 
     Scoring is the LLM pass when available, else the deterministic rubric. Each
     returned candidate carries `score` (int 0-100), `rationale` (str) and
     `flags` (list[str]) on top of its compressed-pool fields.
+
+    `anchor_company_ids` (the resolved cluster) applies a small pedigree BONUS so
+    current/former peer-company candidates float toward the top — important after
+    an adaptive broaden, where the pool is the wide title+geo set rather than the
+    cluster. It nudges, it doesn't gate: a clearly-better-fit non-peer still wins.
     """
     excludes = [t.strip().lower() for t in criteria.title_excludes if t and t.strip()]
+    anchor_ids = set(anchor_company_ids or [])
     kept: list[dict] = []
     for cand in candidates:
         if hiring_company_id is not None and cand.get("current_company_id") == hiring_company_id:
@@ -67,9 +74,23 @@ def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | No
         kept.append(cand)
 
     scores = _score_pool(kept, criteria)
-    out = [{**cand, **scores[i]} for i, cand in enumerate(kept)]
+    out = []
+    for i, cand in enumerate(kept):
+        row = {**cand, **scores[i]}
+        if anchor_ids:
+            _apply_pedigree_bonus(row, anchor_ids)
+        out.append(row)
     out.sort(key=lambda c: (-c["score"], c.get("crustdata_rank", 0)))
     return out
+
+
+def _apply_pedigree_bonus(row: dict, anchor_ids: set) -> None:
+    """Nudge a peer-company candidate's score up (capped at 100). Current employer
+    in the cluster counts more than a past one."""
+    if row.get("current_company_id") in anchor_ids:
+        row["score"] = min(100, row["score"] + config.CLUSTER_BONUS_CURRENT)
+    elif any(cid in anchor_ids for cid in (row.get("past_company_ids") or [])):
+        row["score"] = min(100, row["score"] + config.CLUSTER_BONUS_PAST)
 
 
 def _score_pool(cands: list[dict], criteria: Criteria) -> list[dict]:

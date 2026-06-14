@@ -146,6 +146,25 @@ class RankOrdering(_NoLLM):
         self.assertEqual(ranked[0]["person_id"], "strong")
         self.assertGreater(ranked[0]["score"], ranked[1]["score"])
 
+    def test_pedigree_bonus_floats_peer_company_up(self):
+        # Two equal-fit candidates; the one at a cluster company gets a bonus and
+        # ranks above the non-peer (a nudge, capped at 100, not a hard gate).
+        peer = raw_profile(person_id="peer", skills=[], past_employers=[],
+                           current_employers=[{"name": "Peer", "title": "Backend Engineer",
+                                               "company_id": 10, "seniority_level": "senior"}])
+        other = raw_profile(person_id="other", skills=[], past_employers=[],
+                            current_employers=[{"name": "Other", "title": "Backend Engineer",
+                                                "company_id": 99, "seniority_level": "senior"}])
+        # Partial title fit so base score is < 92 (leaves room for the +8 bonus).
+        crit = Criteria(title="Staff Backend Engineer", tenure_floor_months=None)
+        no_bonus = rank(compress([other, peer]), crit)
+        bonus = rank(compress([other, peer]), crit, anchor_company_ids=[10])
+        self.assertEqual(bonus[0]["person_id"], "peer")
+        peer_no = next(c for c in no_bonus if c["person_id"] == "peer")["score"]
+        peer_yes = next(c for c in bonus if c["person_id"] == "peer")["score"]
+        self.assertEqual(peer_yes, min(100, peer_no + 8))
+        self.assertGreater(peer_yes, peer_no)
+
 
 class RankFiltering(_NoLLM):
     def test_drops_same_employer_as_hiring_company(self):

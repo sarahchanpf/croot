@@ -37,10 +37,20 @@ payload = build_filters(c, resolved, geo_radius_miles=config.GEO_RADIUS_DEFAULT_
 geo = [x for x in payload["conditions"] if x.get("type") == "geo_distance" or x.get("column") in ("region", "location_country")]
 print(f"\n=== GEO CLAUSE === {json.dumps(geo)}")
 
-# One search + one relaxation (mirror route).
+# Mirror the route: search -> adaptive broaden -> thin relaxation.
 data = crustdata.search(payload, limit=config.SEARCH_LIMIT, sorts=sorts)
+total = data.get("total_count") or 0
 relaxed = []
-if (data.get("total_count") or 0) < config.BROAD_HEALTHY_TOTAL_COUNT:
+from app.routes.search import _without_anchor
+if resolved.anchor_company_ids and total < config.AUTO_BROADEN_BELOW:
+    broad = _without_anchor(c)
+    bp = build_filters(broad, _resolve_anchors(broad), geo_radius_miles=config.GEO_RADIUS_DEFAULT_MILES)
+    if bp["conditions"]:
+        bd = crustdata.search(bp, limit=config.SEARCH_LIMIT, sorts=sorts)
+        if (bd.get("total_count") or 0) >= config.AUTO_BROADEN_BELOW:
+            data, total = bd, bd.get("total_count") or 0
+            relaxed.append(f"broadened beyond the company cluster (anchored pool was {payload and ''}thin)")
+if total < config.BROAD_HEALTHY_TOTAL_COUNT:
     rc, nr, label = ranker.plan_relaxation(c, config.GEO_RADIUS_DEFAULT_MILES)
     if rc is not None:
         rp = build_filters(rc, _resolve_anchors(rc), geo_radius_miles=nr)
@@ -50,7 +60,8 @@ if (data.get("total_count") or 0) < config.BROAD_HEALTHY_TOTAL_COUNT:
 print(f"total_count={data.get('total_count')} returned={len(data.get('profiles') or [])} relaxed={relaxed}")
 
 cands = pool.compress(data.get("profiles") or [])
-ranked = ranker.rank(cands, c, hiring_company_id=resolved.hiring_company_id)
+ranked = ranker.rank(cands, c, hiring_company_id=resolved.hiring_company_id,
+                     anchor_company_ids=resolved.anchor_company_ids)
 
 def country(r): return (r or "?").split(",")[-1].strip() or "?"
 print("\n=== where are the returned candidates? ===")

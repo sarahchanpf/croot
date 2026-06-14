@@ -108,6 +108,17 @@ def _resolve_anchors(criteria: Criteria) -> Resolved:
     )
 
 
+def _without_anchor(criteria: Criteria) -> Criteria:
+    """A copy of the criteria with the company/industry cluster removed — the
+    wider title + location + seniority pool for the adaptive broaden."""
+    c = Criteria.from_dict(criteria.to_dict())
+    c.anchor_strategy = "none"
+    c.anchor_companies = []
+    c.anchor_industries = []
+    c.cluster_hint = ""
+    return c
+
+
 def _summarize(criteria: Criteria) -> str:
     parts = []
     if criteria.title:
@@ -183,11 +194,27 @@ def search():
 
     relaxed: list[str] = []
     try:
-        # One full-fat search. If the pool is thin, ONE highest-leverage
-        # relaxation and re-search (skill Phase 2 Step 4). Rank always runs
-        # against the ORIGINAL criteria, so relaxed clauses surface as misses.
+        # One full-fat search. Then two adaptive steps (rank always runs against
+        # the ORIGINAL criteria, so loosened clauses surface as misses).
         data = crustdata.search(payload, limit=limit, sorts=sorts)
-        if (data.get("total_count") or 0) < config.BROAD_HEALTHY_TOTAL_COUNT:
+        total = data.get("total_count") or 0
+
+        # 1) Adaptive broaden: a company-anchored search that returns a thin pool
+        #    means the cluster is too narrow for this role (e.g. 14 niche startups
+        #    on a high-volume AE search). If the un-anchored title+geo+seniority
+        #    pool is healthy, search THAT instead — the pedigree bonus in ranking
+        #    keeps peer-company candidates on top.
+        if resolved.anchor_company_ids and total < config.AUTO_BROADEN_BELOW:
+            broad = _without_anchor(criteria)
+            broad_payload = build_filters(broad, _resolve_anchors(broad), geo_radius_miles=radius)
+            if broad_payload["conditions"]:
+                broad_data = crustdata.search(broad_payload, limit=limit, sorts=sorts)
+                if (broad_data.get("total_count") or 0) >= config.AUTO_BROADEN_BELOW:
+                    data, total = broad_data, broad_data.get("total_count") or 0
+                    relaxed.append("broadened beyond the company cluster")
+
+        # 2) Thin-pool relaxation (skill Phase 2 Step 4) — only if still tiny.
+        if total < config.BROAD_HEALTHY_TOTAL_COUNT:
             relaxed_criteria, new_radius, label = ranker.plan_relaxation(criteria, radius)
             if relaxed_criteria is not None:
                 relaxed_resolved = _resolve_anchors(relaxed_criteria)
@@ -200,7 +227,8 @@ def search():
         return jsonify({"error": str(exc)}), exc.status
 
     candidates = pool.compress(data.get("profiles") or [])
-    ranked = ranker.rank(candidates, criteria, hiring_company_id=resolved.hiring_company_id)
+    ranked = ranker.rank(candidates, criteria, hiring_company_id=resolved.hiring_company_id,
+                         anchor_company_ids=resolved.anchor_company_ids)
 
     result = {
         "from_cache": False,
