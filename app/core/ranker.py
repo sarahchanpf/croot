@@ -64,6 +64,10 @@ def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | No
     """
     excludes = [t.strip().lower() for t in criteria.title_excludes if t and t.strip()]
     anchor_ids = set(anchor_company_ids or [])
+    # Tenure floor applied to the PRIMARY current role. Crustdata's filter matches
+    # any current employer, so a brand-new real job can slip through behind an old
+    # community/side role; this post-filter drops those honeymoon-cohort joiners.
+    tenure_floor_years = (criteria.tenure_floor_months / 12) if criteria.tenure_floor_months else None
     kept: list[dict] = []
     for cand in candidates:
         if hiring_company_id is not None and cand.get("current_company_id") == hiring_company_id:
@@ -71,6 +75,10 @@ def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | No
         current_title = (cand.get("current_title") or "").lower()
         if excludes and any(x in current_title for x in excludes):
             continue
+        if tenure_floor_years is not None:
+            tenure = cand.get("current_tenure_years")
+            if tenure is not None and tenure < tenure_floor_years:
+                continue  # too new in their primary role
         kept.append(cand)
 
     scores = _score_pool(kept, criteria)

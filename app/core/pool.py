@@ -11,11 +11,13 @@ which ran against real Crustdata responses.
 Compressed candidate shape (keys consumed by ranker.py and export/csv_dest.py):
     person_id, name, linkedin_url, headline, region, yoe,
     current_company, current_company_id, current_title, current_seniority,
-    current_start_date, titles[], top_skills[], prior_employers[],
+    current_start_date, current_tenure_years, titles[], top_skills[], prior_employers[],
     industries[], schools[], summary, crustdata_rank, data_gap
 """
 
 from __future__ import annotations
+
+import re
 
 SUMMARY_MAX_CHARS = 1500
 TOP_SKILLS = 20
@@ -37,12 +39,49 @@ def _to_int(value):
         return None
 
 
+def _to_float(value):
+    try:
+        return float(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+# Titles that are usually NOT a real job — community memberships, mentorships,
+# advisory/board seats. Profiles often list several of these as "current
+# employers"; they shouldn't be treated as the person's current role (and they
+# let a brand-new real job slip past the tenure floor — e.g. a 2-month AE whose
+# old "Member @ <community>" entry satisfies the 6-month floor).
+_NON_JOB_TITLE_RE = re.compile(
+    r"\b(member|mentor|advisor|adviser|advisory|volunteer|board\s+member)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_real_job(emp: dict) -> bool:
+    title = _first(emp, "title", "employee_title")
+    return bool(title) and not _NON_JOB_TITLE_RE.search(title)
+
+
+def _primary_current(current: list[dict]) -> dict:
+    """The candidate's primary current employer. Crustdata's `employer_is_default`
+    flag wins (among real jobs); else the first real job; else the first entry.
+    Skips community/advisory 'current employers' that aren't real jobs, so the
+    displayed/scored current role is the actual job — not 'Member @ <group>'."""
+    if not current:
+        return {}
+    real = [e for e in current if _is_real_job(e)] or current
+    for e in real:
+        if e.get("employer_is_default"):
+            return e
+    return real[0]
+
+
 def compress(raw_profiles: list[dict], rank_offset: int = 0) -> list[dict]:
     out: list[dict] = []
     for i, p in enumerate(raw_profiles):
         current = p.get("current_employers") or []
         past = p.get("past_employers") or []
-        cur = current[0] if current else {}
+        cur = _primary_current(current)
         all_emp = current + past
 
         titles = [t for t in (_first(e, "title", "employee_title") for e in all_emp) if t]
@@ -69,6 +108,7 @@ def compress(raw_profiles: list[dict], rank_offset: int = 0) -> list[dict]:
             "current_title": _first(cur, "title", "employee_title"),
             "current_seniority": cur.get("seniority_level") or "",
             "current_start_date": cur.get("start_date") or "",
+            "current_tenure_years": _to_float(cur.get("years_at_company_raw")),
             "titles": titles,
             "top_skills": skills,
             "prior_employers": prior,

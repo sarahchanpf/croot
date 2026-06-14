@@ -72,6 +72,27 @@ class Compression(unittest.TestCase):
         c = compress([{"name": "No Links"}])[0]
         self.assertTrue(c["data_gap"])
 
+    def test_primary_current_skips_community_roles(self):
+        # Community "current employers" listed before the real job — the AE role
+        # is the current role, not "Member @ <group>".
+        c = compress([raw_profile(current_employers=[
+            {"name": "Enterprise Sellers", "title": "Member", "company_id": 1},
+            {"name": "Tangent", "title": "Mentor", "company_id": 2},
+            {"name": "Luminance", "title": "Account Executive", "company_id": 3,
+             "seniority_level": "senior", "years_at_company_raw": 0.2},
+        ])])[0]
+        self.assertEqual(c["current_title"], "Account Executive")
+        self.assertEqual(c["current_company"], "Luminance")
+        self.assertEqual(c["current_company_id"], 3)
+        self.assertAlmostEqual(c["current_tenure_years"], 0.2)
+
+    def test_primary_current_prefers_default_flag(self):
+        c = compress([raw_profile(current_employers=[
+            {"name": "A", "title": "Engineer", "company_id": 1},
+            {"name": "B", "title": "Engineer", "company_id": 2, "employer_is_default": True},
+        ])])[0]
+        self.assertEqual(c["current_company_id"], 2)
+
 
 class Scoring(unittest.TestCase):
     def setUp(self):
@@ -176,6 +197,29 @@ class RankFiltering(_NoLLM):
         cands = compress([raw_profile()])
         crit = Criteria(title="Engineer", title_excludes=["senior"])
         self.assertEqual(rank(cands, crit), [])
+
+    def test_drops_new_in_primary_role(self):
+        # Default 6-month (0.5y) tenure floor: a 0.2y primary-role tenure is the
+        # honeymoon cohort and is dropped; a 1.0y one is kept.
+        new = compress([raw_profile(person_id="new", current_employers=[
+            {"name": "X", "title": "Account Executive", "company_id": 1, "years_at_company_raw": 0.2}])])
+        seasoned = compress([raw_profile(person_id="ok", current_employers=[
+            {"name": "Y", "title": "Account Executive", "company_id": 2, "years_at_company_raw": 1.0}])])
+        ids = [c["person_id"] for c in rank(new + seasoned, Criteria(title="Account Executive"))]
+        self.assertIn("ok", ids)
+        self.assertNotIn("new", ids)
+
+    def test_tenure_floor_none_keeps_recent_joiners(self):
+        new = compress([raw_profile(person_id="new", current_employers=[
+            {"name": "X", "title": "Account Executive", "company_id": 1, "years_at_company_raw": 0.1}])])
+        out = rank(new, Criteria(title="Account Executive", tenure_floor_months=None))
+        self.assertEqual([c["person_id"] for c in out], ["new"])
+
+    def test_unknown_tenure_is_kept(self):
+        # Missing years_at_company_raw -> don't drop on absent data.
+        c = compress([raw_profile(person_id="u", current_employers=[
+            {"name": "X", "title": "Account Executive", "company_id": 1}])])
+        self.assertEqual(len(rank(c, Criteria(title="Account Executive"))), 1)
 
     def test_sorts_by_score_then_rank(self):
         strong = raw_profile(person_id="p1")
