@@ -94,9 +94,70 @@ def strip_html(html_text: str) -> str:
     return html_text.strip()
 
 
+# JS-rendered job boards whose raw HTML is a SPA shell (the JD body loads via
+# JS, so strip_html only sees page chrome / the job-list nav). Each exposes a
+# public JSON API with the actual posting — route to that instead.
+_GREENHOUSE_HOSTS = {"boards.greenhouse.io", "job-boards.greenhouse.io"}
+_LEVER_HOSTS = {"jobs.lever.co"}
+
+
+def _board_api(url: str):
+    """Map a known JS-rendered board URL to its JSON API. Returns (api_url, kind)
+    or (None, None)."""
+    p = urlparse(url)
+    host = (p.hostname or "").lower()
+    parts = [seg for seg in p.path.split("/") if seg]
+    if host in _GREENHOUSE_HOSTS and len(parts) >= 3 and parts[-2] == "jobs":
+        return f"https://boards-api.greenhouse.io/v1/boards/{parts[-3]}/jobs/{parts[-1]}", "greenhouse"
+    if host in _LEVER_HOSTS and len(parts) >= 2:
+        return f"https://api.lever.co/v0/postings/{parts[0]}/{parts[1]}", "lever"
+    return None, None
+
+
+def _fetch_board_api(api_url: str, kind: str) -> str:
+    """Pull a posting from a board's JSON API and return clean text ('' on miss)."""
+    p = urlparse(api_url)
+    if not _is_public_host(p.hostname or ""):
+        return ""
+    try:
+        resp = requests.get(api_url, timeout=_URL_FETCH_TIMEOUT,
+                            headers={"User-Agent": _URL_FETCH_UA, "Accept": "application/json"})
+        if resp.status_code >= 400:
+            return ""
+        data = resp.json()
+    except (requests.RequestException, ValueError):
+        return ""
+    if kind == "greenhouse":
+        loc = (data.get("location") or {}).get("name") or ""
+        raw = "\n".join([data.get("title") or "",
+                         f"Location: {loc}" if loc else "",
+                         unescape(data.get("content") or "")])
+        return strip_html(raw)
+    if kind == "lever":
+        cats = data.get("categories") or {}
+        parts = [data.get("text") or ""]
+        if cats.get("location"):
+            parts.append("Location: " + cats["location"])
+        parts.append(unescape(data.get("descriptionPlain") or data.get("description") or ""))
+        for lst in (data.get("lists") or []):
+            parts.append(lst.get("text") or "")
+            parts.append(unescape(lst.get("content") or ""))
+        parts.append(unescape(data.get("additionalPlain") or data.get("additional") or ""))
+        return strip_html("\n".join(parts))
+    return ""
+
+
 def fetch_from_url(url: str) -> str:
     """Fetch a job-posting URL and return its body as plain text. Raises
     ValueError with a recruiter-friendly message on any failure."""
+    # Known JS-rendered boards (Greenhouse/Lever) -> their JSON API, which has
+    # the real posting. Fall back to the raw fetch below if the API misses.
+    api_url, kind = _board_api(url.strip())
+    if api_url:
+        text = _fetch_board_api(api_url, kind)
+        if len(text) >= _URL_FETCH_MIN_TEXT:
+            return text
+
     current = url.strip()
     for _ in range(_URL_FETCH_MAX_REDIRECTS + 1):
         parsed = urlparse(current)
