@@ -100,6 +100,27 @@ class Location(unittest.TestCase):
         c = conditions_of(build_filters(Criteria(location="New York", remote_ok=True)))
         self.assertIsNone(find(c, FIELD.REGION))
 
+    def test_region_expands_to_country_in_list(self):
+        from app.core.regions import countries_for
+        c = conditions_of(build_filters(Criteria(title="Engineer", location_region="europe")))
+        clause = find(c, FIELD.COUNTRY, "in")
+        self.assertIsNotNone(clause)
+        self.assertEqual(set(clause["value"]), set(countries_for("europe")))
+        self.assertIn("Germany", clause["value"])
+
+    def test_region_alias_and_unknown(self):
+        from app.core.regions import countries_for
+        self.assertEqual(countries_for("EU"), countries_for("europe"))
+        self.assertEqual(countries_for("Asia-Pacific"), countries_for("apac"))
+        self.assertEqual(countries_for("nonsense-region"), [])
+
+    def test_specific_location_beats_region(self):
+        # Precedence: a concrete city wins over a multi-country region.
+        c = conditions_of(build_filters(
+            Criteria(location="Berlin, Germany", location_region="europe")))
+        self.assertIsNotNone(find(c, FIELD.REGION, "geo_distance"))
+        self.assertIsNone(find(c, FIELD.COUNTRY, "in"))
+
 
 class YoEAndTenure(unittest.TestCase):
     def test_yoe_band_emits_gte_and_lte(self):

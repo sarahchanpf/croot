@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from .. import config, llm
 from .criteria import ANCHOR_STRATEGIES, Criteria
+from .regions import REGION_COUNTRIES
 
 
 class IntakeError(RuntimeError):
@@ -39,9 +40,10 @@ Rules:
 - LOCATION — this is WHERE THE CANDIDATE must be, NOT where the hiring company is based. A company (US or otherwise) hiring globally or remotely imposes NO candidate-location requirement: NEVER set `location` or `location_country` from the company's HQ/country. Non-US locations are first-class — handle them exactly like US ones. Apply in order:
   * A specific place is required → set `location` to a GEOCODABLE "City, Region-or-Country" string using the FULL region/country name. US: "Chicago, IL", "Austin, TX". Non-US: "London, United Kingdom", "Bengaluru, India", "Toronto, Canada", "Berlin, Germany", "São Paulo, Brazil". NEVER a bare city, a lone state, or a lone country in `location` (a bare/ambiguous city geocodes unreliably and returns people worldwide).
   * A whole-country search ("anywhere in India", "UK-based only") → leave `location` empty and set `location_country` to the FULL country name ("India", "United Kingdom", "United States").
-  * Remote / global / "open to candidates anywhere" / location-agnostic → leave BOTH `location` and `location_country` empty and set `remote_ok` true. Do NOT infer a country from the company.
+  * A MULTI-COUNTRY region ("Europe", "APAC", "LATAM", "the Nordics", "DACH", "Middle East", "SE Asia") → leave `location` and `location_country` empty and set `location_region` to the closest key (europe, nordics, dach, benelux, uk_ireland, apac, southeast_asia, south_asia, latam, north_america, middle_east, mena, africa, oceania).
+  * Remote / global / "open to candidates anywhere" / location-agnostic → leave `location`, `location_country`, and `location_region` empty and set `remote_ok` true. Do NOT infer a region or country from the company.
   * Hybrid or onsite → location-bound: set `location`, keep `remote_ok` false.
-  Never set a country AND remote_ok together; never invent a location the brief doesn't state. (A multi-country region like "Europe"/"APAC" can't be filtered precisely — leave location empty rather than guessing one country.)
+  Set at most ONE of location / location_country / location_region; never set a location AND remote_ok together; never invent a location the brief doesn't state.
 - Years of experience always carries BOTH a floor and a ceiling. If the recruiter says "5+ years", propose a sensible ceiling for the seniority (e.g. a senior IC "5+" → 5–10) and mention they can change it. Never leave an open-ended "N+".
 - Split skills into must-have vs nice-to-have based on the recruiter's language ("required"/"must" → must-have; "preferred"/"bonus"/"nice" → nice-to-have). When unclear, lean nice-to-have.
 - Anchor strategy decides how Croot narrows to a relevant talent pool. PREFER a concrete COMPANY cluster over a bare industry whenever the brief implies a recognizable set of employers:
@@ -73,8 +75,10 @@ SET_CRITERIA_TOOL = {
             "seniority": {"type": "string"},
             "yoe_min": {"type": ["integer", "null"]},
             "yoe_max": {"type": ["integer", "null"]},
-            "location": {"type": "string", "description": "Geocodable 'City, State' (US) or 'City, Country' string, e.g. 'Chicago, IL'. NEVER a bare city, lone state, or lone country. Leave empty only if the role is fully remote or the search is country-wide (use location_country)."},
-            "location_country": {"type": "string", "description": "Full country name (e.g. 'United States') for a country-wide search. Leave empty when location (city) is set."},
+            "location": {"type": "string", "description": "Geocodable 'City, Region/Country' string with FULL region/country name — US: 'Chicago, IL'; non-US: 'London, United Kingdom', 'Bengaluru, India'. NEVER a bare city, lone state, or lone country. About the CANDIDATE's location, never the company's. Empty if fully remote, country-wide, or a multi-country region."},
+            "location_country": {"type": "string", "description": "Single FULL country name (e.g. 'United States', 'India') for a whole-country search. Empty when location (city) or location_region is set."},
+            "location_region": {"type": "string", "enum": list(REGION_COUNTRIES.keys()),
+                                  "description": "Multi-country region for searches like 'engineers in Europe' / 'APAC' / 'LATAM'. Pick the closest key. Leave empty when a specific city (location) or single country (location_country) is given."},
             "remote_ok": {"type": "boolean"},
             "must_have_skills": {"type": "array", "items": {"type": "string"}},
             "nice_to_have_skills": {"type": "array", "items": {"type": "string"}},

@@ -412,7 +412,9 @@
     if (c.yoe_min != null || c.yoe_max != null) {
       add("Years", [c.yoe_min ?? "any", c.yoe_max ?? "any"].join(" to "));
     }
-    add("Location", c.remote_ok ? "Remote ok" : (c.location || c.location_country));
+    add("Location", c.remote_ok ? "Remote ok"
+      : (c.location || c.location_country
+         || (c.location_region ? c.location_region.replace(/_/g, " ") : "")));
     add("Must-have skills", c.must_have_skills);
     add("Nice-to-have skills", c.nice_to_have_skills);
     add("Domain", c.domain_signals);

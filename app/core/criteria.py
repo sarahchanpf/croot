@@ -39,9 +39,10 @@ class Criteria:
     yoe_min: Optional[int] = None
     yoe_max: Optional[int] = None                              # always set alongside yoe_min
 
-    # --- Location (region, not company HQ) ---
-    location: str = ""                                         # city or country name
-    location_country: str = ""                                 # set instead of `location` for country-wide
+    # --- Location (where the CANDIDATE is, not the company HQ) ---
+    location: str = ""                                         # "City, Region/Country" (geocoded)
+    location_country: str = ""                                 # single full country name, country-wide
+    location_region: str = ""                                  # multi-country region key (see core/regions.py)
     remote_ok: bool = False                                    # if True, geo clause is skipped
 
     # --- Skills ---
@@ -71,8 +72,9 @@ class Criteria:
         """True when there's nothing to search on — guards /api/search."""
         return not any([
             self.title, self.title_variants, self.location, self.location_country,
-            self.must_have_skills, self.domain_signals, self.anchor_companies,
-            self.anchor_industries, self.education.schools, self.education.majors,
+            self.location_region, self.must_have_skills, self.domain_signals,
+            self.anchor_companies, self.anchor_industries,
+            self.education.schools, self.education.majors,
             self.seniority, self.yoe_min, self.yoe_max,
         ])
 

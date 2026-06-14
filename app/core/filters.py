@@ -31,6 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .. import config
+from . import regions
 from .criteria import ANCHOR_STRATEGIES, Criteria
 
 # Caps ported from the skill's anchor strategy (keep the net from over-widening).
@@ -128,6 +129,10 @@ def _location_conditions(criteria: Criteria, geo_radius_miles: int) -> list:
         return [cond(FIELD.REGION, "[.]", loc)]
     if criteria.location_country.strip():
         return [cond(FIELD.COUNTRY, "=", criteria.location_country.strip())]
+    # Multi-country region (e.g. "Europe", "APAC") -> match any of its countries.
+    countries = regions.countries_for(criteria.location_region)
+    if countries:
+        return [cond(FIELD.COUNTRY, "in", countries)]
     return []
 
 

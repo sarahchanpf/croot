@@ -28,6 +28,7 @@ from __future__ import annotations
 import re
 
 from .. import config, llm
+from . import regions
 from .criteria import Criteria
 
 W = config.RUBRIC_WEIGHTS
@@ -316,14 +317,19 @@ def _yoe_seniority_fraction(criteria: Criteria, cand: dict):
 def _location_fraction(criteria: Criteria, cand: dict):
     if criteria.remote_ok:
         return None
-    if not (criteria.location.strip() or criteria.location_country.strip()):
+    region_countries = regions.countries_for(criteria.location_region)
+    if not (criteria.location.strip() or criteria.location_country.strip() or region_countries):
         return None
     region = cand.get("region") or ""
     if not region:
         return 0.0
+    region_l = region.lower()
+    if region_countries:
+        # In-region (candidate's country is one of the region's) scores full.
+        return 1.0 if any(c.lower() in region_l for c in region_countries) else 0.7
     city = (criteria.location.split(",")[0].strip()
             if criteria.location.strip() else criteria.location_country.strip())
-    if city and city.lower() in region.lower():
+    if city and city.lower() in region_l:
         return 1.0
     return 0.7   # passed the geo filter but the name didn't string-match
 
