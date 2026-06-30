@@ -14,7 +14,8 @@ from .base import Destination, ExportResult
 
 COLUMNS = [
     "Rank", "Score", "Name", "Current Company", "Current Title", "YoE",
-    "Region", "Top Skills", "Prior Employers", "LinkedIn URL",
+    "Region", "AI Focus", "Target AI Focus", "AI Fit Score", "AI Evidence",
+    "Top Skills", "Prior Employers", "LinkedIn URL",
     "Personal Email", "Personal Phone", "Headline", "Rationale", "Flags",
 ]
 
@@ -40,6 +41,10 @@ class CSVDestination(Destination):
                 c.get("current_title", ""),
                 c.get("yoe", ""),
                 c.get("region", ""),
+                c.get("ai_focus_label", ""),
+                c.get("target_ai_focus_label", ""),
+                c.get("ai_fit_score", ""),
+                c.get("ai_fit_rationale") or ", ".join(c.get("ai_company_evidence", [])[:5]),
                 ", ".join(c.get("top_skills", [])[:5]),
                 ", ".join(c.get("prior_employers", [])[:3]),
                 c.get("linkedin_url", ""),

@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 
 from .. import config, llm
-from . import regions
+from . import ai_fit, regions
 from .criteria import Criteria
 
 W = config.RUBRIC_WEIGHTS
@@ -87,6 +87,7 @@ def rank(candidates: list[dict], criteria: Criteria, hiring_company_id: int | No
         row = {**cand, **scores[i]}
         if anchor_ids:
             _apply_pedigree_bonus(row, anchor_ids)
+        _decorate_ai_review(row, criteria)
         out.append(row)
     out.sort(key=lambda c: (-c["score"], c.get("crustdata_rank", 0)))
     return out
@@ -130,6 +131,7 @@ Weight bands (a guide, bend them when one signal clearly dominates):
 - Title / role match (current title vs. the target title + seniority): ~25
 - Must-have skills overlap: ~25
 - Domain / industry fit (current + past employers in relevant industries; weight recency): ~20
+- AI-company focus fit when specified or clearly implied: distinguish Research, Model Engineering, and Infrastructure/Systems instead of treating all AI profiles as interchangeable
 - Years-of-experience / seniority band match: ~15
 - Location match (remote-friendly = full credit if the role allows it): ~10
 - Bonus (recent transition into relevant work, relevant education, certs/honors): ~5
@@ -138,6 +140,7 @@ Rules:
 - A slot the criteria don't specify is not scored — don't penalize its absence.
 - Don't double-count: a relevant skill and a relevant employer that prove the same thing don't both stack.
 - Crustdata skills/industry data is sparse: missing skills means UNKNOWN, not absent — don't zero a candidate just because a tag is absent.
+- For AI-company searches: Research fits include research scientist/applied scientist/research engineer, publications, PhD or lab work, and frontier-model/NLP/CV/RL work. Model Engineering fits include production ML, inference, model optimization, fine-tuning, evaluations, PyTorch/TensorFlow/JAX, and model deployment. Infrastructure/Systems fits include GPU/CUDA/Triton, distributed systems, ML infrastructure, cloud/platform, Kubernetes, compilers, storage/networking, and high-throughput serving.
 - Penalize hard misses: a profile that contradicts an exclude (wrong sub-specialty, wrong domain, wrong geo when on-site only) caps at ~40 regardless of other signals.
 - A candidate flagged data_gap (incomplete profile) caps at ~70 unless the surfaced fields independently justify more.
 
@@ -187,6 +190,9 @@ def _criteria_brief(criteria: Criteria) -> str:
         lines.append(f"Must-have skills: {', '.join(criteria.must_have_skills)}")
     if criteria.nice_to_have_skills:
         lines.append(f"Nice-to-have skills: {', '.join(criteria.nice_to_have_skills)}")
+    focus = ai_fit.infer_focus_from_criteria(criteria)
+    if focus:
+        lines.append(f"AI focus: {ai_fit.focus_label(focus)}")
     if criteria.domain_signals:
         lines.append(f"Domain / industry: {', '.join(criteria.domain_signals)}")
     if criteria.education.majors:
@@ -204,6 +210,7 @@ def _criteria_brief(criteria: Criteria) -> str:
 
 def _candidate_brief(cand: dict, index: int) -> dict:
     """The fields the model scores on, trimmed to keep the batch payload small."""
+    classified = ai_fit.classify_candidate(cand)
     return {
         "index": index,
         "current_title": cand.get("current_title") or "",
@@ -217,6 +224,8 @@ def _candidate_brief(cand: dict, index: int) -> dict:
         "top_skills": cand.get("top_skills") or [],
         "schools": cand.get("schools") or [],
         "summary": (cand.get("summary") or "")[:600],
+        "inferred_ai_focus": classified.get("label") or "",
+        "ai_evidence": classified.get("evidence") or ai_fit.ai_company_evidence(cand),
         "data_gap": bool(cand.get("data_gap")),
     }
 
@@ -363,6 +372,32 @@ def _location_fraction(criteria: Criteria, cand: dict):
     return 0.7   # passed the geo filter but the name didn't string-match
 
 
+def _ai_focus_detail(criteria: Criteria, cand: dict):
+    focus = ai_fit.infer_focus_from_criteria(criteria)
+    if not focus:
+        return None
+    return ai_fit.score_candidate_for_focus(cand, focus)
+
+
+def _decorate_ai_review(row: dict, criteria: Criteria) -> None:
+    classified = ai_fit.classify_candidate(row)
+    evidence = classified.get("evidence") or ai_fit.ai_company_evidence(row)
+    if classified.get("focus"):
+        row["ai_focus"] = classified["focus"]
+        row["ai_focus_label"] = classified["label"]
+        row["ai_focus_confidence"] = classified["confidence"]
+    if evidence:
+        row["ai_company_evidence"] = evidence
+
+    detail = _ai_focus_detail(criteria, row)
+    if detail and detail["fraction"] is not None:
+        row["target_ai_focus"] = detail["focus"]
+        row["target_ai_focus_label"] = detail["label"]
+        row["ai_fit_score"] = round(100 * detail["fraction"])
+        if detail["evidence"]:
+            row["ai_fit_rationale"] = "; ".join(detail["evidence"])
+
+
 def score_one(cand: dict, criteria: Criteria) -> dict:
     """Deterministic 0-100 fallback score. Same rubric slots as the LLM pass,
     minus the semantic judgement. No cluster-pedigree slot (skill parity)."""
@@ -392,6 +427,17 @@ def score_one(cand: dict, criteria: Criteria) -> dict:
             missed.append("skills: " + ", ".join(sk_missed))
 
     slot("domain", _domain_fraction(criteria, cand), "domain")
+    ai_detail = _ai_focus_detail(criteria, cand)
+    if ai_detail and ai_detail["fraction"] is not None:
+        frac = ai_detail["fraction"]
+        num += W["ai_focus"] * frac
+        den += W["ai_focus"]
+        label = f"AI focus: {ai_detail['label']}"
+        if frac >= 0.5:
+            matched.append(label)
+        else:
+            missed.append(label)
+        flags.extend(ai_detail["flags"])
     slot("yoe_seniority", _yoe_seniority_fraction(criteria, cand), "experience/seniority")
     slot("location", _location_fraction(criteria, cand), "location")
 

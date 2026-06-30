@@ -39,6 +39,10 @@ class CriteriaContract(unittest.TestCase):
         c = Criteria.from_dict({"title": "PM", "bogus": 123})
         self.assertEqual(c.title, "PM")
 
+    def test_ai_focus_alias_is_normalized(self):
+        c = Criteria.from_dict({"ai_focus": "ML engineering"})
+        self.assertEqual(c.ai_focus, "model_engineering")
+
 
 class CSVExport(unittest.TestCase):
     def test_writes_header_and_rows(self):

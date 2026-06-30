@@ -83,6 +83,7 @@ RUBRIC_WEIGHTS = {
     "title": 25,
     "skills": 25,
     "domain": 20,
+    "ai_focus": 20,
     "yoe_seniority": 15,
     "location": 10,
     "bonus": 5,

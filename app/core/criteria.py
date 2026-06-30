@@ -16,6 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+from .ai_fit import normalize_focus
+
 # Anchor strategy: how we narrow the pool to a cluster of relevant people.
 # Mirrors the skill's Step-0 decision — pick exactly one.
 ANCHOR_STRATEGIES = ("companies", "industries", "both", "none")
@@ -49,6 +51,9 @@ class Criteria:
     must_have_skills: list[str] = field(default_factory=list)  # become hard filter clauses
     nice_to_have_skills: list[str] = field(default_factory=list)  # ranking-only, never filtered
 
+    # --- AI-company specialization ---
+    ai_focus: str = ""  # one of AI_FOCUS_AREAS: research, model_engineering, infrastructure_systems
+
     # --- Domain / education / career signals ---
     domain_signals: list[str] = field(default_factory=list)    # industries / sub-specialties
     education: EducationSignals = field(default_factory=EducationSignals)
@@ -73,6 +78,7 @@ class Criteria:
         return not any([
             self.title, self.title_variants, self.location, self.location_country,
             self.location_region, self.must_have_skills, self.domain_signals,
+            self.ai_focus,
             self.anchor_companies, self.anchor_industries,
             self.education.schools, self.education.majors,
             self.seniority, self.yoe_min, self.yoe_max,
@@ -89,6 +95,8 @@ class Criteria:
             edu = asdict(edu)
         known = {f for f in cls.__dataclass_fields__ if f != "education"}
         clean = {k: v for k, v in data.items() if k in known}
+        if "ai_focus" in clean:
+            clean["ai_focus"] = normalize_focus(clean["ai_focus"])
         c = cls(**clean)
         c.education = EducationSignals(
             majors=list(edu.get("majors", []) or []),

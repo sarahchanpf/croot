@@ -31,7 +31,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .. import config
-from . import regions
+from . import ai_fit, regions
 from .criteria import ANCHOR_STRATEGIES, Criteria
 
 # Caps ported from the skill's anchor strategy (keep the net from over-widening).
@@ -104,6 +104,8 @@ def _dedupe(values, *, lower_key: bool = True) -> list[str]:
 
 def _title_conditions(criteria: Criteria) -> list:
     titles = _dedupe([criteria.title, *criteria.title_variants])
+    if not titles:
+        titles = ai_fit.title_queries_for_focus(criteria.ai_focus)
     if not titles:
         return []
     clauses = [cond(FIELD.CURRENT_TITLE, "[.]", t) for t in titles]

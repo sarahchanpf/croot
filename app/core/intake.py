@@ -19,6 +19,7 @@ which the chat route surfaces as a 503.
 from __future__ import annotations
 
 from .. import config, llm
+from .ai_fit import AI_FOCUS_AREAS
 from .criteria import ANCHOR_STRATEGIES, Criteria
 from .regions import REGION_COUNTRIES
 
@@ -47,6 +48,7 @@ Rules:
   Set at most ONE of location / location_country / location_region; never set a location AND remote_ok together; never invent a location the brief doesn't state.
 - Years of experience always carries BOTH a floor and a ceiling. If the recruiter says "5+ years", propose a sensible ceiling for the seniority (e.g. a senior IC "5+" → 5–10) and mention they can change it. Never leave an open-ended "N+".
 - Split skills into must-have vs nice-to-have based on the recruiter's language ("required"/"must" → must-have; "preferred"/"bonus"/"nice" → nice-to-have). When unclear, lean nice-to-have.
+- AI focus: when the brief is for an AI-company role, set `ai_focus` to exactly one of research, model_engineering, or infrastructure_systems when clear. Research covers Research Scientist, Applied Scientist, Research Engineer, publications/PhD/lab work, NLP/CV/RL/foundation-model research. Model Engineering covers Machine Learning Engineer, Inference Engineer, Model Optimization, production ML, fine-tuning/evals, PyTorch/TensorFlow/JAX, and model deployment. Infrastructure and Systems covers GPU/CUDA/Triton, ML infrastructure, distributed systems, cloud/platform, Kubernetes, compilers, storage/networking, and high-throughput serving. Leave it empty if the lane is unclear.
 - Anchor strategy decides how Croot narrows to a relevant talent pool. PREFER a concrete COMPANY cluster over a bare industry whenever the brief implies a recognizable set of employers:
   * If the recruiter explicitly NAMES specific companies, put those exact companies in `anchor_companies` (and set anchor_strategy "companies"). Don't second-guess an explicit list.
   * Otherwise, when a company cluster is the right anchor — a CATEGORY of companies ("top fintech companies", "big banks", "FAANG", "elite quant firms"), OR a role AT a specific company where you should source from its LOOK-ALIKES ("backend engineer at Brex") — DO NOT hand-list the companies yourself. Instead set `cluster_hint` to a short, specific description of the cluster to build, set anchor_strategy "companies", and leave anchor_companies empty. A dedicated step then assembles the best peer set. (e.g. "top fintech companies" → cluster_hint "top fintech companies"; "backend engineer at Brex" → hiring_company "Brex", cluster_hint "close fintech peers and competitors of Brex, similar stage/size"; "quant dev" → cluster_hint "elite quantitative trading firms".)
@@ -83,6 +85,8 @@ SET_CRITERIA_TOOL = {
             "remote_ok": {"type": "boolean"},
             "must_have_skills": {"type": "array", "items": {"type": "string"}},
             "nice_to_have_skills": {"type": "array", "items": {"type": "string"}},
+            "ai_focus": {"type": "string", "enum": ["", *AI_FOCUS_AREAS],
+                         "description": "AI-company role lane: research, model_engineering, infrastructure_systems, or empty if unclear."},
             "domain_signals": {"type": "array", "items": {"type": "string"},
                                 "description": "Industries / sub-specialties, e.g. 'fintech'."},
             "career_path_signals": {"type": "array", "items": {"type": "string"}},

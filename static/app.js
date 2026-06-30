@@ -26,6 +26,8 @@
     searchesUsed: 0,
     searchesRemaining: 5,
     joinedWaitlist: false,
+    aiFocusEnabled: false,
+    suggestedAiFocus: "",
   };
 
   const $ = (id) => document.getElementById(id);
@@ -67,6 +69,33 @@
     return { ok: res.ok, status: res.status, data, res };
   }
   const splitList = (s) => (s || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const AI_FOCUS_LABELS = {
+    research: "Research",
+    model_engineering: "Model Engineering",
+    infrastructure_systems: "Infrastructure and Systems",
+  };
+  const AI_FOCUS_OPTIONS = [
+    { value: "", label: "Choose focus" },
+    { value: "research", label: "Research" },
+    { value: "model_engineering", label: "Model Engineering" },
+    { value: "infrastructure_systems", label: "Infrastructure and Systems" },
+  ];
+  const gatedCriteria = (criteria) => {
+    const c = Object.assign({}, criteria || {});
+    if (!state.aiFocusEnabled) {
+      if (c.ai_focus) state.suggestedAiFocus = c.ai_focus;
+      c.ai_focus = "";
+    }
+    return c;
+  };
+  const withoutAiReview = (candidate) => {
+    const c = Object.assign({}, candidate || {});
+    [
+      "ai_focus", "ai_focus_label", "ai_focus_confidence", "ai_company_evidence",
+      "target_ai_focus", "target_ai_focus_label", "ai_fit_score", "ai_fit_rationale",
+    ].forEach((key) => { delete c[key]; });
+    return c;
+  };
   // When `loading` is true, show an animated spinner beside the message so it's
   // obvious work is in progress (search/extraction can take a few seconds).
   const setStatus = (msg, loading = false) => {
@@ -268,6 +297,7 @@
   const ADV = [
     { section: "Role" },
     { key: "title", label: "Job title", type: "text", ph: "e.g. Backend Engineer" },
+    { key: "ai_focus", label: "AI focus", type: "ai-focus", options: AI_FOCUS_OPTIONS },
     { key: "seniority", label: "Seniority level", type: "select",
       options: ["", "Junior", "Mid", "Senior", "Lead", "Staff", "Principal", "Director", "VP", "C-level"] },
     { key: "yoe", label: "Years of experience", type: "range" },
@@ -308,9 +338,20 @@
       const cls = "adv-field" + (f.soon ? " soon" : "") + (f.type === "range" ? " full" : "");
       const id = f.key ? `adv-${f.key}` : "";
       let control;
-      if (f.type === "select") {
+      if (f.type === "ai-focus") {
+        control = `<div class="ai-focus-control">
+          <button id="adv-ai-focus-toggle" class="btn-ghost sm" type="button" aria-pressed="false">Turn On</button>
+          <select class="input" id="adv-ai_focus" disabled>` +
+          f.options.map((o) => `<option value="${o.value}">${o.label}</option>`).join("") +
+          `</select>
+        </div>`;
+      } else if (f.type === "select") {
         control = `<select class="input" ${id ? `id="${id}"` : "disabled"}>` +
-          f.options.map((o) => `<option value="${o}">${o || "Any"}</option>`).join("") + `</select>`;
+          f.options.map((o) => {
+            const value = typeof o === "object" ? o.value : o;
+            const label = typeof o === "object" ? o.label : (o || "Any");
+            return `<option value="${value}">${label}</option>`;
+          }).join("") + `</select>`;
       } else if (f.type === "range") {
         control = `<div class="adv-range">
           <input class="input" id="adv-yoe-min" type="number" min="0" placeholder="min" />
@@ -330,12 +371,38 @@
       el.addEventListener("input", debouncedEstimate);
       el.addEventListener("change", debouncedEstimate);
     });
+    const aiToggle = $("adv-ai-focus-toggle");
+    if (aiToggle) {
+      aiToggle.addEventListener("click", () => {
+        state.aiFocusEnabled = !state.aiFocusEnabled;
+        const select = $("adv-ai_focus");
+        if (state.aiFocusEnabled && select && !select.value) {
+          select.value = state.criteria.ai_focus || state.suggestedAiFocus || "";
+        }
+        if (!state.aiFocusEnabled && select) select.value = "";
+        syncAiFocusControl();
+        debouncedEstimate();
+      });
+    }
+    syncAiFocusControl();
+  }
+
+  function syncAiFocusControl() {
+    const toggle = $("adv-ai-focus-toggle");
+    const select = $("adv-ai_focus");
+    if (!toggle || !select) return;
+    select.disabled = !state.aiFocusEnabled;
+    toggle.setAttribute("aria-pressed", String(state.aiFocusEnabled));
+    toggle.textContent = state.aiFocusEnabled ? "On" : "Turn On";
   }
 
   function criteriaToModal() {
     const c = state.criteria;
     const setv = (id, v) => { const el = $(id); if (el) el.value = v == null ? "" : v; };
     setv("adv-title", c.title);
+    if (c.ai_focus) state.aiFocusEnabled = true;
+    setv("adv-ai_focus", state.aiFocusEnabled ? (c.ai_focus || state.suggestedAiFocus) : "");
+    syncAiFocusControl();
     setv("adv-seniority", c.seniority);
     setv("adv-yoe-min", c.yoe_min);
     setv("adv-yoe-max", c.yoe_max);
@@ -354,8 +421,10 @@
     const val = (id) => { const el = $(id); return el ? el.value.trim() : ""; };
     const num = (id) => { const v = val(id); return v === "" ? null : Number(v); };
     const companies = splitList(val("adv-anchor_companies"));
+    const aiFocus = state.aiFocusEnabled ? val("adv-ai_focus") : "";
     const c = {
       title: val("adv-title"),
+      ai_focus: aiFocus,
       seniority: val("adv-seniority"),
       yoe_min: num("adv-yoe-min"),
       yoe_max: num("adv-yoe-max"),
@@ -371,7 +440,7 @@
     const tenure = num("adv-tenure_years");
     if (tenure != null) c.tenure_floor_months = Math.round(tenure * 12);
     // Carry over fields the modal doesn't expose.
-    return Object.assign({}, state.criteria, c);
+    return gatedCriteria(Object.assign({}, state.criteria, c));
   }
 
   let estimateTimer = null;
@@ -407,6 +476,7 @@
     };
 
     add("Role", c.title);
+    add("AI focus", state.aiFocusEnabled ? (AI_FOCUS_LABELS[c.ai_focus] || c.ai_focus) : "");
     add("Title variants", c.title_variants);
     add("Seniority", c.seniority);
     if (c.yoe_min != null || c.yoe_max != null) {
@@ -546,7 +616,7 @@
       return;
     }
 
-    state.criteria = data.criteria || {};
+    state.criteria = gatedCriteria(data.criteria || {});
     renderCriteriaSummary(state.criteria);
     state.conversation.push({ role: "assistant", content: data.reply || "" });
 
@@ -577,6 +647,8 @@
     state.jdText = "";
     state.criteriaSummaryText = "";
     state.lastParsedBriefKey = "";
+    state.aiFocusEnabled = false;
+    state.suggestedAiFocus = "";
 
     els.describe.value = "";
     els.notes.value = "";
@@ -596,7 +668,7 @@
       setStatus("You've used all 5 free searches. Join the waitlist to continue.");
       return;
     }
-    const crit = criteriaOverride || state.criteria;
+    const crit = gatedCriteria(criteriaOverride || state.criteria);
     clearResults();
     setStatus("Searching candidates…", true);
     const { ok, data } = await api("/api/search", {
@@ -614,8 +686,9 @@
       return;
     }
     updateUsage(data);
-    state.results = data.candidates || [];
-    renderResults(data);
+    const aiFocusActive = Boolean((data.criteria || crit || {}).ai_focus);
+    state.results = (data.candidates || []).map((c) => aiFocusActive ? c : withoutAiReview(c));
+    renderResults(Object.assign({}, data, { criteria: crit }));
   }
 
   function scoreClass(s) { return s >= 85 ? "strong" : s >= 60 ? "good" : "partial"; }
@@ -625,6 +698,7 @@
     els.status.hidden = true;
     els.results.hidden = false;
     const n = state.results.length;
+    const showAiReview = Boolean((data.criteria || {}).ai_focus);
     els.resultsTitle.textContent = n ? `Top Matches (${n})` : "No matches";
     if (data.relaxed && data.relaxed.length) {
       els.relaxedNote.hidden = false;
@@ -642,6 +716,12 @@
       const skills = (c.top_skills || []).slice(0, 6)
         .map((s) => `<span class="chip">${esc(s)}</span>`).join("");
       const flags = (c.flags || []).map((f) => `<span class="chip flag">${esc(f)}</span>`).join("");
+      const aiEvidence = showAiReview ? (c.ai_company_evidence || []).slice(0, 3)
+        .map((s) => `<span class="chip ai">${esc(s)}</span>`).join("") : "";
+      const aiReview = showAiReview ? [
+        c.ai_focus_label && `Lane: ${c.ai_focus_label}`,
+        c.target_ai_focus_label && c.ai_fit_score != null && `Target ${c.target_ai_focus_label}: ${c.ai_fit_score}`,
+      ].filter(Boolean).join(" · ") : "";
       const prior = (c.prior_employers || []).slice(0, 3).join(" · ");
       const sub = [c.current_title, c.current_company && `@ ${c.current_company}`,
         c.region, c.yoe != null && `${c.yoe} yrs`].filter(Boolean).join(" · ");
@@ -650,8 +730,10 @@
           <div class="cand-name">${esc(c.name || "Unnamed")}</div>
           <div class="cand-sub">${esc(sub)}</div>
           ${prior ? `<div class="cand-sub">Previously: ${esc(prior)}</div>` : ""}
+          ${aiReview ? `<div class="cand-ai">${esc(aiReview)}</div>` : ""}
+          ${c.ai_fit_rationale ? `<div class="cand-sub">AI evidence: ${esc(c.ai_fit_rationale)}</div>` : ""}
           <div class="cand-rationale">${esc(c.rationale || "")}</div>
-          <div class="cand-skills">${skills}${flags}</div>
+          <div class="cand-skills">${skills}${aiEvidence}${flags}</div>
         </div>
         <div class="cand-side">
           <div class="score ${scoreClass(c.score)}">${c.score}</div>

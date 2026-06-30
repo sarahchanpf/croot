@@ -139,6 +139,26 @@ class Scoring(unittest.TestCase):
                         tenure_floor_months=None)
         self.assertEqual(score_one(self.cand, crit)["score"], 70)
 
+    def test_ai_focus_scores_matching_lane_higher(self):
+        infra = compress([raw_profile(
+            person_id="infra",
+            skills=["CUDA", "Triton", "Kubernetes"],
+            summary="Built distributed GPU clusters for low-latency inference.",
+            current_employers=[{"name": "AI Infra Co", "title": "GPU Infrastructure Engineer",
+                                "company_id": 30, "seniority_level": "senior"}],
+            past_employers=[],
+        )])[0]
+        research = compress([raw_profile(
+            person_id="research",
+            skills=["PyTorch", "NLP"],
+            summary="Published NeurIPS research on foundation models.",
+            current_employers=[{"name": "AI Lab", "title": "Research Scientist",
+                                "company_id": 31, "seniority_level": "senior"}],
+            past_employers=[],
+        )])[0]
+        crit = Criteria(ai_focus="infrastructure_systems", tenure_floor_months=None)
+        self.assertGreater(score_one(infra, crit)["score"], score_one(research, crit)["score"])
+
 
 class RankOrdering(_NoLLM):
     def test_sorts_purely_by_fit_no_tier_override(self):
@@ -228,6 +248,21 @@ class RankFiltering(_NoLLM):
                       Criteria(must_have_skills=["Go", "Kubernetes"]))
         self.assertEqual(ranked[0]["person_id"], "p1")
         self.assertGreater(ranked[0]["score"], ranked[1]["score"])
+
+    def test_ranked_candidates_include_ai_review_fields(self):
+        cands = compress([raw_profile(
+            person_id="mle",
+            skills=["PyTorch", "Inference", "Model Optimization"],
+            summary="Production ML deployment and model serving for LLM products.",
+            current_employers=[{"name": "AI Co", "title": "Machine Learning Engineer",
+                                "company_id": 40, "seniority_level": "senior"}],
+            past_employers=[],
+        )])
+        ranked = rank(cands, Criteria(ai_focus="model_engineering", tenure_floor_months=None))
+        self.assertEqual(ranked[0]["ai_focus_label"], "Model Engineering")
+        self.assertEqual(ranked[0]["target_ai_focus_label"], "Model Engineering")
+        self.assertGreaterEqual(ranked[0]["ai_fit_score"], 50)
+        self.assertIn("ai_fit_rationale", ranked[0])
 
 
 class _Block:

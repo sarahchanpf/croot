@@ -77,6 +77,14 @@ class Title(unittest.TestCase):
         values = [d["value"] for d in or_clause["conditions"]]
         self.assertEqual(values, ["Backend Engineer", "SWE"])  # deduped case-insensitively
 
+    def test_ai_focus_only_expands_to_lane_titles(self):
+        c = conditions_of(build_filters(Criteria(ai_focus="model_engineering")))
+        or_clause = next((x for x in c if x.get("op") == "or"), None)
+        self.assertIsNotNone(or_clause)
+        values = [d["value"] for d in or_clause["conditions"]]
+        self.assertIn("Machine Learning Engineer", values)
+        self.assertIn("Inference Engineer", values)
+
 
 class Location(unittest.TestCase):
     def test_qualified_city_uses_geo_distance_with_radius(self):
