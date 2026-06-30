@@ -139,6 +139,18 @@ class Scoring(unittest.TestCase):
                         tenure_floor_months=None)
         self.assertEqual(score_one(self.cand, crit)["score"], 70)
 
+    def test_ai_focus_is_opt_in(self):
+        from app.core import ai_fit
+        # Generic infra keywords in a non-AI search must NOT infer a lane.
+        self.assertEqual(ai_fit.infer_focus_from_criteria(Criteria(
+            title="Backend Engineer", must_have_skills=["Go", "Kubernetes"],
+            domain_signals=["fintech"])), "")
+        # A genuinely AI search does infer one.
+        self.assertTrue(ai_fit.infer_focus_from_criteria(Criteria(
+            title="Machine Learning Engineer", must_have_skills=["PyTorch", "CUDA"])))
+        # An explicit focus always wins.
+        self.assertEqual(ai_fit.infer_focus_from_criteria(Criteria(ai_focus="research")), "research")
+
     def test_ai_focus_scores_matching_lane_higher(self):
         infra = compress([raw_profile(
             person_id="infra",

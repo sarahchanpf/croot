@@ -153,6 +153,12 @@ def infer_focus_from_criteria(criteria) -> str:
     ])
     if not blob:
         return ""
+    # Opt-in: only infer a lane when the search is actually AI-related. Generic
+    # infra/cloud terms (Kubernetes, AWS, Spark, "platform") must NOT pull a
+    # fintech/backend search into an AI focus — that wrongly added an AI-focus
+    # rubric slot and dropped otherwise-perfect scores.
+    if not _matched_keywords(blob, AI_COMPANY_KEYWORDS, limit=1):
+        return ""
     scored = []
     for focus, keywords in AI_FOCUS_KEYWORDS.items():
         scored.append((len(_matched_keywords(blob, keywords, limit=20)), focus))
