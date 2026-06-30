@@ -39,6 +39,11 @@ _ENRICH_FIELDS_CONTACT = [
     "personal_contact_info.personal_emails",
     "personal_contact_info.phone_numbers",
 ]
+_ENRICH_FIELDS_FULL = [
+    "github_profile_url", "github_url", "github", "github_repositories",
+    "google_scholar_url", "google_scholar", "scholar_url", "publications",
+    "articles", "research_articles", "patents", "projects", "websites",
+]
 
 
 class CrustdataError(Exception):
@@ -196,7 +201,7 @@ def autocomplete(field: str, query: str, limit: int = 10) -> list[str]:
 
 # ---------- enrich (cached per-url, batched) ----------
 
-def enrich(linkedin_urls: list[str], include_contact: bool = True) -> dict:
+def enrich(linkedin_urls: list[str], include_contact: bool = True, include_full: bool = False) -> dict:
     """Enrich profiles by LinkedIn URL. Cache-first per URL (30-day TTL); only
     cache-missed URLs hit Crustdata, batched comma-separated. The expensive
     call — gated behind an explicit user action upstream.
@@ -211,11 +216,12 @@ def enrich(linkedin_urls: list[str], include_contact: bool = True) -> dict:
         key = normalize_linkedin_url(url)
         if not key:
             continue
+        cache_key = key + ("|full" if include_full else "")
         try:
             with closing(db()) as conn:
                 row = conn.execute(
                     "SELECT payload, created_at FROM profile_cache WHERE linkedin_key = ?",
-                    (key,),
+                    (cache_key,),
                 ).fetchone()
             if row and now - row["created_at"] < config.PROFILE_TTL_SECONDS:
                 by_url[key] = json.loads(row["payload"])
@@ -230,6 +236,8 @@ def enrich(linkedin_urls: list[str], include_contact: bool = True) -> dict:
         fields = list(_ENRICH_FIELDS_BASE)
         if include_contact:
             fields += _ENRICH_FIELDS_CONTACT
+        if include_full:
+            fields += _ENRICH_FIELDS_FULL
         try:
             r = requests.get(
                 config.CRUSTDATA_ENRICH_URL, headers=_get_headers(),
@@ -239,7 +247,18 @@ def enrich(linkedin_urls: list[str], include_contact: bool = True) -> dict:
         except requests.RequestException as exc:
             raise CrustdataError(f"Upstream request failed: {exc}", 502)
         if r.status_code >= 400:
-            raise CrustdataError(f"Crustdata returned {r.status_code}: {r.text[:500]}", r.status_code)
+            if not include_full:
+                raise CrustdataError(f"Crustdata returned {r.status_code}: {r.text[:500]}", r.status_code)
+            fields = list(_ENRICH_FIELDS_BASE)
+            if include_contact:
+                fields += _ENRICH_FIELDS_CONTACT
+            r = requests.get(
+                config.CRUSTDATA_ENRICH_URL, headers=_get_headers(),
+                params={"linkedin_profile_url": ",".join(misses), "fields": ",".join(fields)},
+                timeout=_TIMEOUT,
+            )
+            if r.status_code >= 400:
+                raise CrustdataError(f"Crustdata returned {r.status_code}: {r.text[:500]}", r.status_code)
         data = r.json()
         profiles = data if isinstance(data, list) else [data] if isinstance(data, dict) else []
         for prof in profiles:
@@ -250,12 +269,13 @@ def enrich(linkedin_urls: list[str], include_contact: bool = True) -> dict:
             if not key:
                 continue
             by_url[key] = prof
+            cache_key = key + ("|full" if include_full else "")
             try:
                 with closing(db()) as conn, conn:
                     conn.execute(
                         "INSERT OR REPLACE INTO profile_cache (linkedin_key, payload, created_at) "
                         "VALUES (?, ?, ?)",
-                        (key, json.dumps(prof), now),
+                        (cache_key, json.dumps(prof), now),
                     )
             except Exception:
                 pass

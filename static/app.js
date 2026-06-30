@@ -741,8 +741,12 @@
           <div class="cand-links">
             ${c.linkedin_url ? `<a class="link" href="${esc(c.linkedin_url)}" target="_blank" rel="noopener">LinkedIn</a>` : ""}
             <a class="link reveal" href="#" data-i="${i}">Reveal contact</a>
+            ${c.linkedin_url ? `<button class="link link-btn full-profile" type="button" data-i="${i}">${c.full_profile ? (c.profileOpen ? "Close Profile" : "Open Profile") : "Load Full Profile"}</button>` : ""}
           </div>
           <div class="contact-out" id="contact-${i}"></div>
+        </div>
+        <div class="profile-panel" id="profile-${i}" ${c.profileOpen ? "" : "hidden"}>
+          ${c.full_profile ? renderFullProfile(c.full_profile) : ""}
         </div>
       </article>`;
     }).join("");
@@ -750,6 +754,116 @@
     els.cards.querySelectorAll(".reveal").forEach((a) => {
       a.addEventListener("click", (e) => { e.preventDefault(); revealContact(+a.dataset.i); });
     });
+    els.cards.querySelectorAll(".full-profile").forEach((button) => {
+      button.addEventListener("click", () => loadFullProfile(+button.dataset.i));
+    });
+  }
+
+  function profileLine(parts) {
+    return parts.filter(Boolean).map(esc).join(" · ");
+  }
+
+  function renderProfileRows(items, formatter, emptyText) {
+    const rows = (items || []).map(formatter).filter(Boolean);
+    return rows.length
+      ? `<ul class="profile-list">${rows.map((row) => `<li>${row}</li>`).join("")}</ul>`
+      : `<p class="muted mini">${esc(emptyText)}</p>`;
+  }
+
+  function renderProfileLink(label, url) {
+    return url ? `<a class="link" href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a>` : "";
+  }
+
+  function textFromItem(item) {
+    if (typeof item === "string") return item;
+    if (!item || typeof item !== "object") return "";
+    return item.name || item.title || item.description || item.issuer || "";
+  }
+
+  function renderFullProfile(p) {
+    const links = [
+      renderProfileLink("LinkedIn", p.linkedin_url),
+      renderProfileLink("GitHub", p.github_url),
+      renderProfileLink("Scholar", p.scholar_url),
+    ].filter(Boolean).join("");
+    const contact = [
+      ...(p.personal_emails || []),
+      ...(p.phone_numbers || []),
+    ].filter(Boolean).join(" · ");
+    const current = renderProfileRows(p.current_employers, (e) =>
+      profileLine([e.title, e.company && `@ ${e.company}`, e.seniority, e.industry, e.start_date && `since ${e.start_date}`]),
+      "No current roles returned.");
+    const past = renderProfileRows(p.past_employers, (e) =>
+      profileLine([e.title, e.company && `@ ${e.company}`, e.industry, [e.start_date, e.end_date].filter(Boolean).join(" to ")]),
+      "No past roles returned.");
+    const education = renderProfileRows(p.education, (e) =>
+      profileLine([e.school, e.degree, e.field, [e.start_date, e.end_date].filter(Boolean).join(" to ")]),
+      "No education returned.");
+    const articles = renderProfileRows(p.scholar_articles, (a) => {
+      const title = a.url ? renderProfileLink(a.title || a.url, a.url) : esc(a.title || "");
+      const meta = profileLine([a.venue, a.year]);
+      return [title, meta].filter(Boolean).join(`<span class="profile-meta"> ${esc("·")} </span>`);
+    }, "No Scholar articles returned.");
+    const repos = renderProfileRows(p.github_repositories, (r) => {
+      const name = r.url ? renderProfileLink(r.name || r.url, r.url) : esc(r.name || "");
+      return [name, esc(r.description || "")].filter(Boolean).join(`<span class="profile-meta"> ${esc("·")} </span>`);
+    }, "No GitHub repositories returned.");
+    const skills = (p.skills || []).slice(0, 12).map((s) => `<span class="chip">${esc(s)}</span>`).join("");
+    const certs = (p.certifications || []).map(textFromItem).filter(Boolean).slice(0, 6);
+    const honors = (p.honors || []).map(textFromItem).filter(Boolean).slice(0, 6);
+
+    return `<div class="profile-grid">
+      <div class="profile-head">
+        ${p.profile_picture_url ? `<img class="profile-avatar" src="${esc(p.profile_picture_url)}" alt="" />` : ""}
+        <div>
+          <div class="profile-title">${esc(p.name || "Full profile")}</div>
+          <div class="cand-sub">${profileLine([p.headline, p.location, p.connections && `${p.connections} connections`])}</div>
+          <div class="profile-links">${links || `<span class="muted mini">No external profile links returned.</span>`}</div>
+        </div>
+      </div>
+      ${contact ? `<div class="profile-section"><h3>Contact</h3><p>${esc(contact)}</p></div>` : ""}
+      ${p.summary ? `<div class="profile-section wide"><h3>Summary</h3><p>${esc(p.summary)}</p></div>` : ""}
+      <div class="profile-section"><h3>Current</h3>${current}</div>
+      <div class="profile-section"><h3>Past</h3>${past}</div>
+      <div class="profile-section"><h3>Education</h3>${education}</div>
+      <div class="profile-section"><h3>Scholar Articles</h3>${articles}</div>
+      <div class="profile-section"><h3>GitHub</h3>${repos}</div>
+      ${skills ? `<div class="profile-section wide"><h3>Skills</h3><div class="cand-skills">${skills}</div></div>` : ""}
+      ${certs.length ? `<div class="profile-section"><h3>Certifications</h3>${renderProfileRows(certs, (x) => esc(x), "No certifications returned.")}</div>` : ""}
+      ${honors.length ? `<div class="profile-section"><h3>Honors</h3>${renderProfileRows(honors, (x) => esc(x), "No honors returned.")}</div>` : ""}
+    </div>`;
+  }
+
+  async function loadFullProfile(i) {
+    const c = state.results[i];
+    const panel = $("profile-" + i);
+    const button = els.cards.querySelector(`.full-profile[data-i="${i}"]`);
+    if (!c || !c.linkedin_url || !panel || !button) return;
+    if (c.full_profile) {
+      c.profileOpen = !c.profileOpen;
+      panel.hidden = !c.profileOpen;
+      button.textContent = c.profileOpen ? "Close Profile" : "Open Profile";
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Loading…";
+    panel.hidden = false;
+    panel.innerHTML = `<p class="muted mini">Loading full profile…</p>`;
+    const { ok, data } = await api("/api/profile?full=true&linkedin_url=" + encodeURIComponent(c.linkedin_url));
+    button.disabled = false;
+    if (!ok) {
+      panel.innerHTML = `<p class="muted mini">${esc(data.error || "Couldn't load the full profile.")}</p>`;
+      button.textContent = "Load Full Profile";
+      return;
+    }
+    c.full_profile = data.full_profile || {};
+    c.profileOpen = true;
+    const info = (c.full_profile.personal_emails || [])[0] || "";
+    const phone = (c.full_profile.phone_numbers || [])[0] || "";
+    if (info) c.personal_email = info;
+    if (phone) c.personal_phone = phone;
+    panel.innerHTML = renderFullProfile(c.full_profile);
+    button.textContent = "Close Profile";
   }
 
   async function revealContact(i) {
